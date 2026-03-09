@@ -1,0 +1,35 @@
+[package]
+name = "leit-notes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+# Core types
+leit_core = { workspace = true }
+
+# Query building
+leit_query = { workspace = true }
+
+# Text analysis
+leit_text = { workspace = true }
+
+# Scoring
+leit_score = { workspace = true }
+
+# Collection
+leit_collect = { workspace = true }
+
+# Indexing
+leit_index = { workspace = true }
+
+# Postings
+leit_postings = { workspace = true }
