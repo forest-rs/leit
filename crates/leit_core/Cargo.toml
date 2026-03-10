@@ -1,20 +1,16 @@
 [package]
 name = "leit_core"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Shared identifiers and retrieval vocabulary for the Leit kernel."
-readme = "README.md"
-keywords = ["leit", "search", "retrieval", "kernel"]
-categories = ["algorithms", "data-structures"]
+description.workspace = true
 
 [features]
-default = []
-std = []
-
-[dependencies]
+default = ["alloc"]
+alloc = []
 
 [lints]
 workspace = true

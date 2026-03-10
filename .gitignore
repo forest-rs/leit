@@ -1,6 +1,9 @@
-/target
-AGENTS.md
-CLAUDE.md
-node_modules
+/target/
+**/*.rs.bk
+Cargo.lock
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
 .env
-

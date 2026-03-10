@@ -1,0 +1,12 @@
+[package]
+name = "leit_postings"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+leit_core = { path = "../leit_core", features = ["alloc"] }
+
+[features]
+default = ["alloc", "std"]
+alloc = []
+std = ["alloc"]

@@ -1,0 +1,11 @@
+[package]
+name = "leit_collect"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+leit_core = { path = "../leit_core", features = ["alloc"] }
+
+[features]
+default = ["alloc"]
+alloc = []

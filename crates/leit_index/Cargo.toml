@@ -1,0 +1,12 @@
+[package]
+name = "leit_index"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+leit_core = { path = "../leit_core" }
+leit_text = { path = "../leit_text" }
+leit_query = { path = "../leit_query" }
+leit_postings = { path = "../leit_postings" }
+leit_score = { path = "../leit_score" }
+leit_collect = { path = "../leit_collect" }

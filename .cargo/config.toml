@@ -1,2 +1,6 @@
-[target.wasm32-wasip1]
-runner = "wasmtime run --dir ."
+[term]
+verbose = true
+color = "auto"
+
+[net]
+git-fetch-with-cli = true

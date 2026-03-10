@@ -6,14 +6,13 @@ members = [
     "crates/leit_text",
     "crates/leit_postings",
     "crates/leit_fusion",
-    "crates/leit_collect",
-    "crates/leit_index",
+    "crates/leit-collect",
+    "crates/leit-index",
 ]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
-description = "A fast search engine library inspired by Lucene"
 edition = "2024"
 rust-version = "1.85.0"
 authors = ["Leif Contributors"]
@@ -32,8 +31,8 @@ leit-query = { path = "crates/leit_query" }
 leit-text = { path = "crates/leit_text" }
 leit-postings = { path = "crates/leit_postings" }
 leit-fusion = { path = "crates/leit_fusion" }
-leit-collect = { path = "crates/leit_collect" }
-leit-index = { path = "crates/leit_index" }
+leit-collect = { path = "crates/leit-collect" }
+leit-index = { path = "crates/leit-index" }
 
 # External dependencies - shared versions across workspace
 # Serialization
