@@ -2,18 +2,25 @@
 name = "leit_text"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description.workspace = true
 
 [dependencies]
-leit_core = { path = "../leit_core", features = ["alloc"] }
+icu_casemap.workspace = true
+icu_locid.workspace = true
+leit_core.workspace = true
 icu_segmenter = { version = "1.5", optional = true }
 icu_normalizer = { version = "1.5", optional = true }
+unicode-normalization.workspace = true
 
 [features]
-default = ["alloc"]
-alloc = []
-std = ["alloc"]
+default = ["std"]
+std = []
 icu = ["std", "icu_segmenter", "icu_normalizer"]
+
+[lints]
+workspace = true

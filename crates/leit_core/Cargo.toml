@@ -6,11 +6,15 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description.workspace = true
 
 [features]
-default = ["alloc"]
-alloc = []
+default = ["std"]
+std = []
+
+[dev-dependencies]
+proptest = { workspace = true }
 
 [lints]
 workspace = true

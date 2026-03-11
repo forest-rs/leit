@@ -1,7 +1,235 @@
+//! Result collection for Leit retrieval system.
+//!
+//! This crate provides collectors for gathering search results,
+//! including top-k collection with early termination support.
+
 #![no_std]
 
-#[cfg(feature = "alloc")]
 extern crate alloc;
 
-/// Placeholder structure for leit_collect
-pub struct Collect;
+use alloc::collections::BinaryHeap;
+use alloc::vec::Vec;
+use core::cmp::Ordering;
+use leit_core::{EntityId, Score, ScoredHit};
+
+// ============================================================================
+// Collector Trait
+// ============================================================================
+
+/// Trait for collecting search results.
+pub trait Collector<Id: EntityId> {
+    /// Collect a hit.
+    fn collect(&mut self, hit: ScoredHit<Id>);
+
+    /// Check if a score can be skipped (for WAND optimization).
+    /// Returns true if a hit with this score would not make it into the top-k.
+    fn can_skip(&self, score: Score) -> bool;
+
+    /// Number of hits collected.
+    fn len(&self) -> usize;
+
+    /// Check if no hits have been collected.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+// ============================================================================
+// TopKCollector
+// ============================================================================
+
+/// A collector that maintains the top-k hits by score.
+///
+/// Uses a min-heap internally, so the smallest score is at the top.
+/// This allows efficient early termination checks.
+#[derive(Debug)]
+pub struct TopKCollector<Id: EntityId> {
+    heap: BinaryHeap<ReverseHit<Id>>,
+    k: usize,
+    min_score: Score,
+}
+
+impl<Id: EntityId> TopKCollector<Id> {
+    /// Create a new top-k collector.
+    #[must_use]
+    pub const fn new(k: usize) -> Self {
+        Self {
+            heap: BinaryHeap::new(),
+            k,
+            min_score: Score::MIN,
+        }
+    }
+
+    /// Get the current minimum score in the top-k.
+    /// Returns `Score::MIN` if fewer than k hits have been collected.
+    #[must_use]
+    pub const fn min_score(&self) -> Score {
+        self.min_score
+    }
+
+    /// Finalize the collection and return the hits in descending score order.
+    #[must_use]
+    pub fn into_sorted_vec(self) -> Vec<ScoredHit<Id>> {
+        let mut hits: Vec<_> = self.heap.into_iter().map(|rh| rh.0).collect();
+        hits.sort_by(|a, b| b.cmp(a));
+        hits
+    }
+}
+
+impl<Id: EntityId> Collector<Id> for TopKCollector<Id> {
+    fn collect(&mut self, hit: ScoredHit<Id>) {
+        if self.heap.len() < self.k {
+            // Not full yet, always add
+            self.heap.push(ReverseHit(hit));
+            self.update_min_score();
+        } else if let Some(top) = self.heap.peek() {
+            // Full: only add if the hit outranks the current minimum.
+            if hit > top.0 {
+                self.heap.pop();
+                self.heap.push(ReverseHit(hit));
+                self.update_min_score();
+            }
+        }
+    }
+
+    fn can_skip(&self, score: Score) -> bool {
+        // If we have k hits and the new score is <= min, we can skip
+        self.heap.len() >= self.k && score <= self.min_score
+    }
+
+    fn len(&self) -> usize {
+        self.heap.len()
+    }
+}
+
+impl<Id: EntityId> TopKCollector<Id> {
+    fn update_min_score(&mut self) {
+        if let Some(top) = self.heap.peek() {
+            self.min_score = top.0.score;
+        }
+    }
+}
+
+/// A wrapper to reverse the ordering for min-heap behavior.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ReverseHit<Id: EntityId>(ScoredHit<Id>);
+
+impl<Id: EntityId> PartialOrd for ReverseHit<Id> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<Id: EntityId> Ord for ReverseHit<Id> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse ordering: larger scores compare as "smaller" so they stay at bottom of heap
+        // This gives us min-heap behavior where smallest score is at top
+        other
+            .0
+            .score
+            .partial_cmp(&self.0.score)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| other.0.id.cmp(&self.0.id))
+    }
+}
+
+// ============================================================================
+// CountCollector
+// ============================================================================
+
+/// A simple collector that just counts hits.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CountCollector {
+    count: usize,
+}
+
+impl CountCollector {
+    /// Create a new count collector.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { count: 0 }
+    }
+
+    /// Get the count of hits.
+    #[must_use]
+    pub const fn count(&self) -> usize {
+        self.count
+    }
+}
+
+impl<Id: EntityId> Collector<Id> for CountCollector {
+    fn collect(&mut self, _hit: ScoredHit<Id>) {
+        self.count = self.count.saturating_add(1);
+    }
+
+    fn can_skip(&self, _score: Score) -> bool {
+        false // Never skip, we want to count everything
+    }
+
+    fn len(&self) -> usize {
+        self.count
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_topk_basic() {
+        let mut collector = TopKCollector::<u32>::new(3);
+
+        collector.collect(ScoredHit::new(1, Score::new(0.5)));
+        collector.collect(ScoredHit::new(2, Score::new(0.8)));
+        collector.collect(ScoredHit::new(3, Score::new(0.3)));
+        collector.collect(ScoredHit::new(4, Score::new(0.9)));
+        collector.collect(ScoredHit::new(5, Score::new(0.1)));
+
+        let hits = collector.into_sorted_vec();
+        assert_eq!(hits.len(), 3);
+        assert_eq!(hits[0].id, 4); // score 0.9
+        assert_eq!(hits[1].id, 2); // score 0.8
+        assert_eq!(hits[2].id, 1); // score 0.5
+    }
+
+    #[test]
+    fn test_can_skip() {
+        let mut collector = TopKCollector::<u32>::new(2);
+
+        // Not full yet
+        assert!(!collector.can_skip(Score::ZERO));
+
+        collector.collect(ScoredHit::new(1, Score::new(0.5)));
+        collector.collect(ScoredHit::new(2, Score::new(0.8)));
+
+        // Now full, min score is 0.5
+        assert!(collector.can_skip(Score::new(0.3)));
+        assert!(collector.can_skip(Score::new(0.5)));
+        assert!(!collector.can_skip(Score::new(0.6)));
+    }
+
+    #[test]
+    fn test_count_collector() {
+        let mut collector = CountCollector::new();
+
+        collector.collect(ScoredHit::new(1u32, Score::ONE));
+        collector.collect(ScoredHit::new(2u32, Score::ONE));
+        collector.collect(ScoredHit::new(3u32, Score::ONE));
+
+        assert_eq!(collector.count(), 3);
+    }
+
+    #[test]
+    fn test_topk_keeps_higher_id_when_lowest_scores_tie() {
+        let mut collector = TopKCollector::<u32>::new(2);
+
+        collector.collect(ScoredHit::new(0, Score::new(-84.97)));
+        collector.collect(ScoredHit::new(0, Score::new(-0.47)));
+        collector.collect(ScoredHit::new(1_134_700_433, Score::new(-84.97)));
+
+        let hits = collector.into_sorted_vec();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0], ScoredHit::new(0, Score::new(-0.47)));
+        assert_eq!(hits[1], ScoredHit::new(1_134_700_433, Score::new(-84.97)));
+    }
+}

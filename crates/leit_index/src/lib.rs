@@ -1,9 +1,21 @@
-// leit_index - Standard library boundary layer for Leif search engine
-//
-// This crate serves as the std boundary layer, integrating various
-// no_std components into a cohesive, std-powered indexing system.
+#![no_std]
 
-#![warn(missing_docs)]
-#![warn(clippy::pedantic)]
+//! Index construction and segment access for Leit.
+//!
+//! Phase 1 keeps this crate concrete:
+//! - `InMemoryIndex` builds a small in-memory inverted index
+//! - `SegmentView` opens and validates a borrowed segment from `&[u8]`
+//!
+//! The borrowed-open seam is the important extension point for future
+//! acquisition crates such as mmap-backed segment loaders.
 
-pub mod index;
+extern crate alloc;
+
+mod codec;
+mod error;
+mod memory;
+mod segment;
+
+pub use error::{IndexError, SegmentError};
+pub use memory::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, IndexBuilder};
+pub use segment::{SectionKind, SegmentView};

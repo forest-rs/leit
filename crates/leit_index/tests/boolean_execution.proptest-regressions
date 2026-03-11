@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 13e90795b1467a3f64efbb08445f126d5c56dbe120c420c9d67b9109d07a096a # shrinks to corpus = [(false, false, false)]
+cc 24dff7227e50703ef58b4937e122adedf048e47e8b227558a3821b26fb67e8cc # shrinks to corpus = [(false, false, false)]
+cc 1447cdd330d596dcd175eebf25d02fbd29a4a8cfdab508cdef39e87005bcf720 # shrinks to corpus = [(false, false, false)], query_index = 0
+cc c8a22a47c7be89c430b974228a7cf71906576d71e45da463c668fa6badd7a135 # shrinks to corpus = [(false, false, false)]

@@ -8,6 +8,7 @@ members = [
     "crates/leit_fusion",
     "crates/leit_collect",
     "crates/leit_index",
+    "crates/leit-integration-tests",
 ]
 resolver = "2"
 
@@ -15,25 +16,26 @@ resolver = "2"
 version = "0.1.0"
 description = "A fast search engine library inspired by Lucene"
 edition = "2024"
-rust-version = "1.85.0"
-authors = ["Leif Contributors"]
+rust-version = "1.88.0"
+authors = ["LeiT Contributors"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/leif"
-homepage = "https://github.com/yourusername/leif"
+repository = "https://github.com/forest-rs/leit"
+homepage = "https://github.com/forest-rs/leit"
 readme = "README.md"
 keywords = ["search", "information-retrieval", "lucene"]
 categories = ["database-implementations", "data-structures", "algorithms"]
 
 [workspace.dependencies]
 # Internal crate dependencies
-leit-core = { path = "crates/leit_core" }
-leit-score = { path = "crates/leit_score" }
-leit-query = { path = "crates/leit_query" }
-leit-text = { path = "crates/leit_text" }
-leit-postings = { path = "crates/leit_postings" }
-leit-fusion = { path = "crates/leit_fusion" }
-leit-collect = { path = "crates/leit_collect" }
-leit-index = { path = "crates/leit_index" }
+leit_core = { path = "crates/leit_core" }
+leit_score = { path = "crates/leit_score" }
+leit_query = { path = "crates/leit_query" }
+leit_text = { path = "crates/leit_text" }
+leit_postings = { path = "crates/leit_postings" }
+leit_fusion = { path = "crates/leit_fusion" }
+leit_collect = { path = "crates/leit_collect" }
+leit_index = { path = "crates/leit_index" }
+leit-integration-tests = { path = "crates/leit-integration-tests" }
 
 # External dependencies - shared versions across workspace
 # Serialization
@@ -42,7 +44,11 @@ serde_derive = { version = "1.0" }
 
 # Testing
 proptest = { version = "1.0" }
-criterion = { version = "0.5" }
+
+# Text normalization
+icu_casemap = { version = "1.5" }
+icu_locid = { version = "1.5", default-features = false }
+unicode-normalization = { version = "0.1.25", default-features = false }
 
 [workspace.lints.rust]
 # Safety lints - deny unsafe patterns

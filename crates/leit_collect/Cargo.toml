@@ -1,11 +1,23 @@
 [package]
 name = "leit_collect"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description.workspace = true
 
 [dependencies]
-leit_core = { path = "../leit_core", features = ["alloc"] }
+leit_core.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [features]
-default = ["alloc"]
-alloc = []
+default = ["std"]
+std = []
+
+[lints]
+workspace = true

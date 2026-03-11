@@ -1,12 +1,28 @@
 [package]
 name = "leit_index"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description.workspace = true
 
 [dependencies]
-leit_core = { path = "../leit_core" }
-leit_text = { path = "../leit_text" }
-leit_query = { path = "../leit_query" }
-leit_postings = { path = "../leit_postings" }
-leit_score = { path = "../leit_score" }
-leit_collect = { path = "../leit_collect" }
+leit_core.workspace = true
+leit_text.workspace = true
+leit_query.workspace = true
+leit_postings.workspace = true
+leit_score.workspace = true
+leit_collect.workspace = true
+
+[features]
+default = ["std"]
+std = []
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
