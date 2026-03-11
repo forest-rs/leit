@@ -14,6 +14,8 @@ This crate provides:
 
 The implementation is deterministic: ties break by best rank, then by ID.
 
+This crate works in `no_std + alloc`. `std` is enabled by default.
+
 ## Running tests
 
 From the workspace root:

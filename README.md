@@ -16,6 +16,25 @@ The current codebase implements a Phase 1 in-memory search stack with:
 The crate boundaries are intentional. Each crate owns one concern and exposes a
 small public surface.
 
+## `no_std` and `alloc`
+
+The library crates are designed to work in `no_std` environments. They enable
+`std` by default, but the core search crates can be built with
+`default-features = false` for `no_std + alloc` targets.
+
+That applies to the main library path:
+
+- `leit_core`
+- `leit_text`
+- `leit_query`
+- `leit_postings`
+- `leit_score`
+- `leit_collect`
+- `leit_fusion`
+- `leit_index`
+
+The integration-test crate is `std`-only by design.
+
 ## Workspace crates
 
 - `leit_core`: shared identifiers, scores, hits, and workspace traits

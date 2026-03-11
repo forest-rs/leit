@@ -11,6 +11,8 @@ This crate provides:
 `TopKCollector` keeps the current minimum score so query execution can skip
 hits that cannot enter the result set.
 
+This crate works in `no_std + alloc`. `std` is enabled by default.
+
 ## Running tests
 
 From the workspace root:

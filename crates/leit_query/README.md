@@ -13,6 +13,8 @@ This crate provides:
 The crate separates user-facing query structure from execution-facing plans so
 index crates can depend on a calmer, validated surface.
 
+This crate works in `no_std + alloc`. `std` is enabled by default.
+
 ## Running tests
 
 From the workspace root:

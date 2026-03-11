@@ -12,6 +12,9 @@ This crate provides:
 The public surface stays small. Query planning lives in `leit-query`, but most
 callers can search through `InMemoryIndex` without building planner contexts.
 
+This crate is structured for `no_std + alloc` builds, with `std` enabled by
+default for the current Phase 1 path.
+
 ## Segment Format
 
 The Phase 1 segment format contains:

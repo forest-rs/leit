@@ -11,3 +11,5 @@ This crate provides:
 
 Postings lists preserve document order so higher layers can rely on cursor
 semantics during query execution.
+
+This crate works in `no_std + alloc`. `std` is enabled by default.

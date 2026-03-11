@@ -12,3 +12,5 @@ This crate provides:
 
 Phase 1 focuses on lexical scoring. The trait surface is broad enough to add
 other scoring families later.
+
+This crate works in `no_std`. `std` is enabled by default.
