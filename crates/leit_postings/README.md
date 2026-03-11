@@ -1,0 +1,13 @@
+# leit-postings
+
+Postings storage and traversal for Leit.
+
+This crate provides:
+
+- `Posting` and `PostingsList` for inverted-list storage
+- `TermDictionary` for term to `TermId` mapping
+- `DocCursor` and `TfCursor` for postings traversal
+- `InMemoryPostings` and `InMemoryCursor` for the Phase 1 in-memory path
+
+Postings lists preserve document order so higher layers can rely on cursor
+semantics during query execution.

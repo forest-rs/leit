@@ -1,28 +1,51 @@
 # Leit
 
-A no_std-compatible search engine library for Rust.
+A modular Rust search library.
 
-## Overview
+Leit is a workspace of small crates for building full-text retrieval systems.
+The current codebase implements a Phase 1 in-memory search stack with:
 
-Leit is a modular search engine library designed to work in both standard and embedded environments. It provides full-text search capabilities with a layered architecture that allows using only the components you need.
+- query planning
+- Unicode-aware text analysis
+- BM25 and BM25F scoring
+- postings traversal
+- top-k collection
+- reciprocal-rank fusion
+- in-memory indexing and segment validation
 
-## Crates
+The crate boundaries are intentional. Each crate owns one concern and exposes a
+small public surface.
 
-- **leit-core**: Core types and traits
-- **leit-score**: Scoring algorithms (BM25, etc.)
-- **leit-query**: Query types and parsers
-- **leit-text**: Text analysis and tokenization
-- **leit-postings**: Posting list data structures and compression
-- **leit-fusion**: Query result fusion and combination algorithms
-- **leit-collect**: Result collection and top-K selection
-- **leit-index**: Main indexing and search interface
+## Workspace crates
 
-## Features
+- `leit_core`: shared identifiers, scores, hits, and workspace traits
+- `leit_text`: tokenization and Unicode normalization
+- `leit_query`: query construction and planning
+- `leit_postings`: postings storage and cursor traits
+- `leit_score`: lexical scoring algorithms
+- `leit_collect`: result collectors
+- `leit_fusion`: result fusion
+- `leit_index`: in-memory indexing, search, and segment access
+- `leit-integration-tests`: cross-crate integration coverage
 
-- `no_std` + `alloc` support for embedded systems
-- Modular architecture with clear layer boundaries
-- Optional serialization via serde
+## Current status
+
+The workspace is centered on the in-memory Phase 1 path. The public APIs and
+tests are already set up so later phases can swap in more storage backends,
+analysis strategies, and scoring methods without collapsing the crate
+boundaries.
+
+## Verification
+
+From the workspace root:
+
+```bash
+cargo fmt
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo doc --no-deps
+```
 
 ## License
 
-Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+Licensed under either Apache-2.0 or MIT.
