@@ -152,14 +152,6 @@ impl Score {
         Self(value)
     }
 
-    /// Create a score without validation.
-    ///
-    /// # Safety
-    /// The caller must ensure the value is a valid non-NaN float.
-    pub const unsafe fn new_unchecked(value: f32) -> Self {
-        Self(value)
-    }
-
     /// Get the raw f32 value.
     pub const fn as_f32(self) -> f32 {
         self.0

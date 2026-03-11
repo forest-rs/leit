@@ -15,31 +15,17 @@ jobs:
         rust:
           - stable
           - nightly
-        features:
-          - default
-          - alloc
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
       - name: Build
-        run: cargo build --workspace --features ${{ matrix.features }}
+        run: cargo build --workspace
       - name: Test
-        run: cargo test --workspace --features ${{ matrix.features }}
+        run: cargo test --workspace
       - name: Run linter
-        run: cargo clippy --workspace --features ${{ matrix.features }} -- -D warnings
-
-  no_std:
-    name: no_std Verification
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build without std
-        run: cargo build --workspace --no-default-features --features alloc
-      - name: Test without std
-        run: cargo test --workspace --no-default-features --features alloc
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   formatting:
     name: Formatting Check

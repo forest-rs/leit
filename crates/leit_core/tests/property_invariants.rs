@@ -75,3 +75,10 @@ fn score_multiplication_clamps_non_finite_inputs() {
     assert_eq!(Mul::mul(Score::MAX, -2.0), Score::MIN);
     assert_eq!(Mul::mul(Score::ONE, f32::NAN), Score::ZERO);
 }
+
+#[test]
+fn score_new_rejects_all_non_finite_values() {
+    assert!(panic::catch_unwind(|| Score::new(f32::NAN)).is_err());
+    assert!(panic::catch_unwind(|| Score::new(f32::INFINITY)).is_err());
+    assert!(panic::catch_unwind(|| Score::new(f32::NEG_INFINITY)).is_err());
+}

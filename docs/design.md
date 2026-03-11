@@ -71,11 +71,17 @@ The kernel owns:
 
 Higher-level orchestration should stay outside the kernel. That includes:
 
-- vector retrieval adapters
-- graph-derived candidate sources
-- second-stage rerankers
-- RAG or agent workflows
+- cross-source orchestration and routing
 - product-specific serving logic
+- application-owned workflow composition
+
+The boundary is important:
+
+- the kernel may expose lexical and vector retrieval backends
+- the kernel may expose scoring kernels for lexical, vector, or learned ranking
+- the kernel should not hard-code one retrieval mode as the meaning of "search"
+- fusion, reranking, and multi-stage workflow composition should sit above the
+  kernel-facing execution APIs
 
 ## Current architecture
 
@@ -127,8 +133,19 @@ validated.
 - BM25F
 - scorer composition through `CombinedScorer`
 
-The current scoring path is lexical. The trait surface is broad enough for
-future hybrid or learned scorers.
+The current implemented scoring kernels are lexical, but scorer ownership is a
+policy concern rather than an index concern. The index owns corpus facts such
+as postings, field statistics, and document lengths. Execution combines those
+facts with an explicit scoring policy.
+
+That distinction should remain true as Leit grows:
+
+- lexical scoring should not be the only execution model
+- vector similarity and embedding-based ranking should fit without forcing the
+  index layer to pretend they are term scorers
+- learned sparse retrieval may require non-integer term weights
+- hybrid retrieval should be able to combine multiple candidate sources without
+  collapsing them into one score space too early
 
 ### Collection and fusion
 
@@ -142,9 +159,21 @@ boundary so execution can skip work that cannot change the final top-k.
 `leit_index` keeps build-time and query-time concerns separate:
 
 - `InMemoryIndexBuilder` builds an in-memory inverted index
-- `InMemoryIndex` executes high-level search
-- `ExecutionWorkspace` reuses search scratch state
+- `InMemoryIndex` owns immutable retrieval data
+- `ExecutionWorkspace` reuses execution scratch state
 - `SegmentView` validates and reads serialized segment bytes
+
+Execution should stay explicit and component-oriented. The intended direction is
+closer to:
+
+- plan the query separately
+- choose an execution-time scoring policy explicitly
+- reuse a caller-owned `ExecutionWorkspace`
+- pass results into a caller-owned collector
+
+The workspace is the natural home for mutable execution state. The index should
+remain an immutable source of retrieval facts rather than becoming the owner of
+ranking policy.
 
 The segment format is a borrowed Phase 1 format with a header, section
 directory, and sections for term dictionary, field metadata, postings metadata,
@@ -186,6 +215,11 @@ on:
 
 Higher-level convenience APIs may allocate more freely, but the kernel should
 keep allocation behavior visible.
+
+This posture also preserves room for non-postings execution models. A future
+vector backend or embedding-based retriever may not traverse postings at all,
+but it should still be able to participate in the same explicit execution,
+collection, and fusion story.
 
 ## Observability and benchmarking
 
@@ -232,10 +266,14 @@ feature requires rewriting the kernel center, the design should be reconsidered.
 
 ## Near-term open work
 
-- wire BM25F into the index execution path, not just the scoring crate
+- refactor `leit_index` execution around explicit execution-time scorer
+  selection rather than scorerless search helpers
+- wire BM25F into execution through that explicit scorer path
 - expand the segment format beyond the current Phase 1 representation
 - add more analyzers and tokenizers beyond whitespace tokenization
 - evaluate additional scoring families beyond BM25 and BM25F
+- define how vector candidate sources and embedding-based ranking fit at the
+  kernel boundary without overfitting the execution model to postings
 - add the benchmark and observability layer described in the project vision
 - define the projection-facing API more explicitly in the public design
 - reconcile or remove remaining scaffold files that are outside the active

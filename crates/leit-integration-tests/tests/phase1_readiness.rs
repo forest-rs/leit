@@ -122,8 +122,8 @@ fn test_score_fundamentals() {
     assert_close_f32(Score::ZERO.as_f32(), 0.0, "ZERO constant");
     assert_close_f32(Score::ONE.as_f32(), 1.0, "ONE constant");
 
-    let weight = unsafe { Score::new_unchecked(2.5) };
-    assert_close_f32(weight.as_f32(), 2.5, "unchecked score preserves value");
+    let weight = Score::new(2.5);
+    assert_close_f32(weight.as_f32(), 2.5, "score preserves finite values");
 }
 
 #[test]

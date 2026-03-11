@@ -7,7 +7,8 @@ The current codebase implements a Phase 1 in-memory search stack with:
 
 - query planning
 - Unicode-aware text analysis
-- BM25 and BM25F scoring
+- BM25 scoring in the in-memory index path
+- BM25 and BM25F scoring kernels in `leit_score`
 - postings traversal
 - top-k collection
 - reciprocal-rank fusion
@@ -33,7 +34,9 @@ That applies to the main library path:
 - `leit_fusion`
 - `leit_index`
 
-The integration-test crate is `std`-only by design.
+The integration-test crate is part of the workspace for cross-crate coverage.
+Its test suites run under `std`, even though the crate itself can be built with
+default features disabled.
 
 ## Workspace crates
 
@@ -63,6 +66,12 @@ cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo test
 cargo doc --no-deps
+```
+
+The library crates also support `no_std + alloc` builds with:
+
+```bash
+cargo build --workspace --exclude leit-integration-tests --no-default-features
 ```
 
 ## License
