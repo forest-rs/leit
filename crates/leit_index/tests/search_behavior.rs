@@ -213,6 +213,33 @@ fn field_qualified_and_mixed_scope_queries_are_stable() {
 }
 
 #[test]
+fn field_qualified_terms_use_field_local_bm25_stats() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(2), "title");
+    builder
+        .index_document(
+            1,
+            &[
+                (
+                    FieldId::new(1),
+                    "noise noise noise noise noise noise noise noise",
+                ),
+                (FieldId::new(2), "alpha"),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), ""), (FieldId::new(2), "alpha")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let title_hits = search(&index, "title:alpha", 10).expect("search should succeed");
+
+    assert_eq!(title_hits.len(), 2);
+    assert_eq!(title_hits[0].score, title_hits[1].score);
+}
+
+#[test]
 fn lower_level_planner_still_reports_unknown_term() {
     let mut builder = InMemoryIndexBuilder::new(test_analyzers());
     builder

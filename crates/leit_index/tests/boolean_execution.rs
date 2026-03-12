@@ -66,6 +66,13 @@ fn result_ids(index: &InMemoryIndex, query: &str, limit: usize) -> BTreeSet<u32>
         .collect()
 }
 
+fn results(index: &InMemoryIndex, query: &str, limit: usize) -> Vec<leit_core::ScoredHit<u32>> {
+    let mut workspace = ExecutionWorkspace::new();
+    workspace
+        .search(index, query, limit, SearchScorer::bm25())
+        .expect("query should search")
+}
+
 fn build_mixed_scope_index(corpus: &[(bool, bool)]) -> InMemoryIndex {
     let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
     builder.register_field_alias(FieldId::new(2), "title");
@@ -83,6 +90,72 @@ fn build_mixed_scope_index(corpus: &[(bool, bool)]) -> InMemoryIndex {
             .expect("document should index");
     }
     builder.build_index()
+}
+
+#[test]
+fn and_not_filters_without_adding_score() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), "alpha beta")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let alpha_hits = results(&index, "alpha", 10);
+    let filtered_hits = results(&index, "alpha AND NOT beta", 10);
+
+    assert_eq!(filtered_hits.len(), 1);
+    assert_eq!(filtered_hits[0].id, 1);
+    assert_eq!(filtered_hits[0].score, alpha_hits[0].score);
+}
+
+#[test]
+fn or_not_keeps_positive_scores_and_filter_matches_neutral() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), "alpha beta")])
+        .expect("document should index");
+    builder
+        .index_document(3, &[(FieldId::new(1), "gamma")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let hits = results(&index, "alpha OR NOT beta", 10);
+
+    let by_id: std::collections::BTreeMap<_, _> =
+        hits.into_iter().map(|hit| (hit.id, hit.score)).collect();
+    assert_eq!(by_id.len(), 3);
+    assert!(by_id[&1] > leit_core::Score::ZERO);
+    assert!(by_id[&2] > leit_core::Score::ZERO);
+    assert_eq!(by_id[&3], leit_core::Score::ZERO);
+}
+
+#[test]
+fn bare_not_returns_neutral_scores() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), "beta")])
+        .expect("document should index");
+    builder
+        .index_document(3, &[(FieldId::new(1), "gamma")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let hits = results(&index, "NOT beta", 10);
+
+    assert_eq!(
+        hits.iter().map(|hit| hit.id).collect::<BTreeSet<_>>(),
+        BTreeSet::from([1, 3])
+    );
+    assert!(hits.iter().all(|hit| hit.score == leit_core::Score::ZERO));
 }
 
 proptest! {

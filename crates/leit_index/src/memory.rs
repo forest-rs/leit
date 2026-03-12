@@ -54,12 +54,21 @@ pub(crate) struct FieldMetadata {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct EvalResult {
+    matches: BTreeSet<u32>,
     scores: BTreeMap<u32, Score>,
 }
 
 impl EvalResult {
-    const fn from_scores(scores: BTreeMap<u32, Score>) -> Self {
-        Self { scores }
+    fn from_scores(scores: BTreeMap<u32, Score>) -> Self {
+        let matches = scores.keys().copied().collect();
+        Self { matches, scores }
+    }
+
+    const fn from_matches(matches: BTreeSet<u32>) -> Self {
+        Self {
+            matches,
+            scores: BTreeMap::new(),
+        }
     }
 }
 
@@ -71,7 +80,7 @@ struct BuildState {
     postings: BTreeMap<TermId, Vec<PostingEntry>>,
     field_stats: BTreeMap<FieldId, FieldMetadata>,
     field_names: BTreeMap<String, FieldId>,
-    doc_lengths: BTreeMap<u32, u32>,
+    field_doc_lengths: BTreeMap<(u32, FieldId), u32>,
     next_term_id: u32,
 }
 
@@ -84,7 +93,7 @@ impl BuildState {
             postings: BTreeMap::new(),
             field_stats: BTreeMap::new(),
             field_names: BTreeMap::new(),
-            doc_lengths: BTreeMap::new(),
+            field_doc_lengths: BTreeMap::new(),
             next_term_id: 0,
         }
     }
@@ -96,11 +105,6 @@ fn is_non_unit_boost(boost: f32) -> bool {
 
 #[allow(clippy::cast_precision_loss)]
 const fn u32_to_f32(value: u32) -> f32 {
-    value as f32
-}
-
-#[allow(clippy::cast_precision_loss)]
-const fn usize_to_f32(value: usize) -> f32 {
     value as f32
 }
 
@@ -247,7 +251,6 @@ impl IndexBuilder for InMemoryIndexBuilder {
             return Err(IndexError::DuplicateDocument(doc_id));
         }
 
-        let mut document_length = 0_u32;
         let mut pending_fields = BTreeMap::<FieldId, (BTreeMap<String, u32>, u32)>::new();
 
         for &(field_id, text) in fields {
@@ -261,9 +264,6 @@ impl IndexBuilder for InMemoryIndexBuilder {
             let mut field_token_count = 0_u32;
             for (_, normalized) in analyzed_tokens {
                 field_token_count = field_token_count
-                    .checked_add(1)
-                    .ok_or(IndexError::ValueOutOfRange)?;
-                document_length = document_length
                     .checked_add(1)
                     .ok_or(IndexError::ValueOutOfRange)?;
                 let entry = frequencies.entry(normalized).or_insert(0);
@@ -284,9 +284,11 @@ impl IndexBuilder for InMemoryIndexBuilder {
         }
 
         self.state.documents.insert(doc_id);
-        self.state.doc_lengths.insert(doc_id, document_length);
 
         for (field_id, (frequencies, field_token_count)) in pending_fields {
+            self.state
+                .field_doc_lengths
+                .insert((doc_id, field_id), field_token_count);
             let stats = self
                 .state
                 .field_stats
@@ -348,7 +350,7 @@ impl IndexBuilder for InMemoryIndexBuilder {
             postings: self.state.postings,
             field_stats: self.state.field_stats,
             field_names: self.state.field_names,
-            doc_lengths: self.state.doc_lengths,
+            field_doc_lengths: self.state.field_doc_lengths,
         }
     }
 }
@@ -363,7 +365,7 @@ pub struct InMemoryIndex {
     postings: BTreeMap<TermId, Vec<PostingEntry>>,
     field_stats: BTreeMap<FieldId, FieldMetadata>,
     field_names: BTreeMap<String, FieldId>,
-    doc_lengths: BTreeMap<u32, u32>,
+    field_doc_lengths: BTreeMap<(u32, FieldId), u32>,
 }
 
 impl InMemoryIndex {
@@ -388,12 +390,14 @@ impl InMemoryIndex {
         &self.postings
     }
 
-    fn avg_doc_length(&self) -> f32 {
-        if self.doc_lengths.is_empty() {
+    fn avg_field_doc_length(&self, field: FieldId) -> f32 {
+        let Some(stats) = self.field_stats.get(&field) else {
+            return 0.0;
+        };
+        if stats.doc_count == 0 {
             return 0.0;
         }
-        let total = u32_to_f32(self.doc_lengths.values().copied().sum::<u32>());
-        total / usize_to_f32(self.doc_lengths.len())
+        u32_to_f32(stats.total_terms) / u32_to_f32(stats.doc_count)
     }
 
     fn default_field(&self) -> FieldId {
@@ -424,11 +428,15 @@ impl InMemoryIndex {
         };
 
         match node {
-            QueryNode::Term { term, boost, .. } => Ok(self.eval_term(*term, *boost, scoring)),
+            QueryNode::Term { field, term, boost } => {
+                Ok(self.eval_term(*field, *term, *boost, scoring))
+            }
             QueryNode::Or { children, boost } => {
+                let mut matches = BTreeSet::new();
                 let mut results = BTreeMap::new();
                 for child in children {
                     let child_result = self.evaluate_node(*child, program, scoring)?;
+                    matches.extend(child_result.matches);
                     for (doc_id, score) in child_result.scores {
                         let entry = results.entry(doc_id).or_insert(Score::ZERO);
                         AddAssign::add_assign(entry, score);
@@ -439,64 +447,88 @@ impl InMemoryIndex {
                         MulAssign::mul_assign(score, *boost);
                     }
                 }
-                Ok(EvalResult::from_scores(results))
+                Ok(EvalResult {
+                    matches,
+                    scores: results,
+                })
             }
             QueryNode::And { children, boost } => {
                 let mut iter = children.iter();
                 let Some(first) = iter.next() else {
                     return Ok(EvalResult::default());
                 };
-                let mut results = self.evaluate_node(*first, program, scoring)?.scores;
+                let first_result = self.evaluate_node(*first, program, scoring)?;
+                let mut matches = first_result.matches.clone();
+                let mut child_results = Vec::new();
+                child_results.push(first_result);
                 for child in iter {
-                    let child_scores = self.evaluate_node(*child, program, scoring)?.scores;
-                    results.retain(|doc_id, score| {
-                        child_scores.get(doc_id).is_some_and(|child_score| {
-                            AddAssign::add_assign(score, *child_score);
-                            true
-                        })
-                    });
+                    let child_result = self.evaluate_node(*child, program, scoring)?;
+                    matches.retain(|doc_id| child_result.matches.contains(doc_id));
+                    child_results.push(child_result);
+                }
+                let mut results = BTreeMap::new();
+                for child_result in child_results {
+                    for (doc_id, child_score) in child_result.scores {
+                        if matches.contains(&doc_id) {
+                            let entry = results.entry(doc_id).or_insert(Score::ZERO);
+                            AddAssign::add_assign(entry, child_score);
+                        }
+                    }
                 }
                 if is_non_unit_boost(*boost) {
                     for score in results.values_mut() {
                         MulAssign::mul_assign(score, *boost);
                     }
                 }
-                Ok(EvalResult::from_scores(results))
+                Ok(EvalResult {
+                    matches,
+                    scores: results,
+                })
             }
             QueryNode::Not { child } => {
-                let child_scores = self.evaluate_node(*child, program, scoring)?.scores;
-                let mut results = BTreeMap::new();
+                let child_matches = self.evaluate_node(*child, program, scoring)?.matches;
+                let mut matches = BTreeSet::new();
                 for doc_id in &self.documents {
-                    if !child_scores.contains_key(doc_id) {
-                        results.insert(*doc_id, Score::ONE);
+                    if !child_matches.contains(doc_id) {
+                        matches.insert(*doc_id);
                     }
                 }
-                Ok(EvalResult::from_scores(results))
+                Ok(EvalResult::from_matches(matches))
             }
             QueryNode::ConstantScore { child, score } => {
                 let mut result = self.evaluate_node(*child, program, scoring)?;
-                for value in result.scores.values_mut() {
-                    MulAssign::mul_assign(value, *score);
+                result.scores.clear();
+                for doc_id in &result.matches {
+                    result.scores.insert(*doc_id, Score::new(*score));
                 }
                 Ok(result)
             }
         }
     }
 
-    fn eval_term(&self, term: TermId, boost: f32, scoring: SearchScorer) -> EvalResult {
+    fn eval_term(
+        &self,
+        field: FieldId,
+        term: TermId,
+        boost: f32,
+        scoring: SearchScorer,
+    ) -> EvalResult {
         let mut results = BTreeMap::new();
         let Some(postings) = self.postings.get(&term) else {
             return EvalResult::default();
         };
 
-        let avg_doc_length = self.avg_doc_length();
-        let doc_count = self.document_count();
+        let avg_doc_length = self.avg_field_doc_length(field);
+        let doc_count = self
+            .field_stats
+            .get(&field)
+            .map_or(0, |stats| stats.doc_count);
         let doc_frequency = u32::try_from(postings.len()).unwrap_or(u32::MAX);
 
         for posting in postings {
             let doc_length = self
-                .doc_lengths
-                .get(&posting.doc_id)
+                .field_doc_lengths
+                .get(&(posting.doc_id, field))
                 .copied()
                 .unwrap_or_default();
             let mut score = scoring.score_term(
@@ -516,7 +548,8 @@ impl InMemoryIndex {
     }
 
     fn collect_result<C: Collector<u32>>(result: EvalResult, collector: &mut C) {
-        for (doc_id, score) in result.scores {
+        for doc_id in result.matches {
+            let score = result.scores.get(&doc_id).copied().unwrap_or(Score::ZERO);
             if collector.can_skip(score) {
                 continue;
             }
