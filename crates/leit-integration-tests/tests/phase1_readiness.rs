@@ -363,6 +363,7 @@ proptest! {
 #[test]
 fn test_topk_collector_basic() {
     let mut collector = TopKCollector::<u32>::new(3);
+    collector.begin_query();
 
     collector.collect(ScoredHit::new(1, Score::new(0.5)));
     collector.collect(ScoredHit::new(2, Score::new(0.8)));
@@ -370,7 +371,7 @@ fn test_topk_collector_basic() {
     collector.collect(ScoredHit::new(4, Score::new(0.9)));
     collector.collect(ScoredHit::new(5, Score::new(0.1)));
 
-    let hits = collector.into_sorted_vec();
+    let hits = collector.finish();
     assert_eq!(hits.len(), 3);
     assert_eq!(hits[0].id, 4);
     assert_eq!(hits[1].id, 2);
@@ -380,6 +381,7 @@ fn test_topk_collector_basic() {
 #[test]
 fn test_topk_collector_early_termination() {
     let mut collector = TopKCollector::<u32>::new(2);
+    collector.begin_query();
 
     assert!(!collector.can_skip(Score::ZERO));
 
@@ -394,6 +396,7 @@ fn test_topk_collector_early_termination() {
 #[test]
 fn test_count_collector_trait_contract() {
     let mut collector = CountCollector::new();
+    <CountCollector as Collector<u32>>::begin_query(&mut collector);
 
     assert_eq!(collector.count(), 0);
     assert!(Collector::<u32>::is_empty(&collector));
@@ -405,6 +408,7 @@ fn test_count_collector_trait_contract() {
     assert_eq!(Collector::<u32>::len(&collector), 3);
     assert_eq!(collector.count(), 3);
     assert!(!Collector::<u32>::is_empty(&collector));
+    assert_eq!(<CountCollector as Collector<u32>>::finish(&mut collector), 3);
 }
 
 #[derive(Default)]

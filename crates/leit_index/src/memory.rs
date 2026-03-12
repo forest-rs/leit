@@ -350,8 +350,9 @@ impl InMemoryIndex {
 
         let result = self.evaluate_plan(&plan)?;
         let mut collector = TopKCollector::new(limit);
+        collector.begin_query();
         Self::collect_result(result, &mut collector);
-        Ok(collector.into_sorted_vec())
+        Ok(collector.finish())
     }
 
     fn evaluate_plan(&self, plan: &ExecutionPlan) -> Result<EvalResult, IndexError> {

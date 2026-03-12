@@ -10,6 +10,7 @@ extern crate alloc;
 use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
+use core::mem;
 use leit_core::{EntityId, Score, ScoredHit};
 
 // ============================================================================
@@ -18,15 +19,32 @@ use leit_core::{EntityId, Score, ScoredHit};
 
 /// Trait for collecting search results.
 pub trait Collector<Id: EntityId> {
+    /// Final output produced for one query.
+    type Output;
+
+    /// Prepare the collector for a new query.
+    fn begin_query(&mut self);
+
     /// Collect a hit.
     fn collect(&mut self, hit: ScoredHit<Id>);
 
-    /// Check if a score can be skipped (for WAND optimization).
-    /// Returns true if a hit with this score would not make it into the top-k.
-    fn can_skip(&self, score: Score) -> bool;
+    /// Return the current competitive threshold for this query, if any.
+    ///
+    /// Execution may skip a candidate whose maximum possible score is less than
+    /// or equal to this value.
+    fn threshold(&self) -> Option<Score>;
+
+    /// Finalize the current query and return its output.
+    fn finish(&mut self) -> Self::Output;
 
     /// Number of hits collected.
     fn len(&self) -> usize;
+
+    /// Check if a score can be skipped (for WAND optimization).
+    /// Returns true if a hit with this score would not make it into the top-k.
+    fn can_skip(&self, score: Score) -> bool {
+        self.threshold().is_some_and(|threshold| score <= threshold)
+    }
 
     /// Check if no hits have been collected.
     fn is_empty(&self) -> bool {
@@ -70,13 +88,18 @@ impl<Id: EntityId> TopKCollector<Id> {
     /// Finalize the collection and return the hits in descending score order.
     #[must_use]
     pub fn into_sorted_vec(self) -> Vec<ScoredHit<Id>> {
-        let mut hits: Vec<_> = self.heap.into_iter().map(|rh| rh.0).collect();
-        hits.sort_by(|a, b| b.cmp(a));
-        hits
+        Self::sorted_hits_from_heap(self.heap)
     }
 }
 
 impl<Id: EntityId> Collector<Id> for TopKCollector<Id> {
+    type Output = Vec<ScoredHit<Id>>;
+
+    fn begin_query(&mut self) {
+        self.heap.clear();
+        self.min_score = Score::MIN;
+    }
+
     fn collect(&mut self, hit: ScoredHit<Id>) {
         if self.heap.len() < self.k {
             // Not full yet, always add
@@ -92,9 +115,14 @@ impl<Id: EntityId> Collector<Id> for TopKCollector<Id> {
         }
     }
 
-    fn can_skip(&self, score: Score) -> bool {
-        // If we have k hits and the new score is <= min, we can skip
-        self.heap.len() >= self.k && score <= self.min_score
+    fn threshold(&self) -> Option<Score> {
+        (self.heap.len() >= self.k).then_some(self.min_score)
+    }
+
+    fn finish(&mut self) -> Self::Output {
+        let heap = mem::take(&mut self.heap);
+        self.min_score = Score::MIN;
+        Self::sorted_hits_from_heap(heap)
     }
 
     fn len(&self) -> usize {
@@ -103,6 +131,12 @@ impl<Id: EntityId> Collector<Id> for TopKCollector<Id> {
 }
 
 impl<Id: EntityId> TopKCollector<Id> {
+    fn sorted_hits_from_heap(heap: BinaryHeap<ReverseHit<Id>>) -> Vec<ScoredHit<Id>> {
+        let mut hits: Vec<_> = heap.into_iter().map(|rh| rh.0).collect();
+        hits.sort_by(|a, b| b.cmp(a));
+        hits
+    }
+
     fn update_min_score(&mut self) {
         if let Some(top) = self.heap.peek() {
             self.min_score = top.0.score;
@@ -158,12 +192,24 @@ impl CountCollector {
 }
 
 impl<Id: EntityId> Collector<Id> for CountCollector {
+    type Output = usize;
+
+    fn begin_query(&mut self) {
+        self.count = 0;
+    }
+
     fn collect(&mut self, _hit: ScoredHit<Id>) {
         self.count = self.count.saturating_add(1);
     }
 
-    fn can_skip(&self, _score: Score) -> bool {
-        false // Never skip, we want to count everything
+    fn threshold(&self) -> Option<Score> {
+        None
+    }
+
+    fn finish(&mut self) -> Self::Output {
+        let count = self.count;
+        self.count = 0;
+        count
     }
 
     fn len(&self) -> usize {
@@ -178,6 +224,7 @@ mod tests {
     #[test]
     fn test_topk_basic() {
         let mut collector = TopKCollector::<u32>::new(3);
+        collector.begin_query();
 
         collector.collect(ScoredHit::new(1, Score::new(0.5)));
         collector.collect(ScoredHit::new(2, Score::new(0.8)));
@@ -185,7 +232,7 @@ mod tests {
         collector.collect(ScoredHit::new(4, Score::new(0.9)));
         collector.collect(ScoredHit::new(5, Score::new(0.1)));
 
-        let hits = collector.into_sorted_vec();
+        let hits = collector.finish();
         assert_eq!(hits.len(), 3);
         assert_eq!(hits[0].id, 4); // score 0.9
         assert_eq!(hits[1].id, 2); // score 0.8
@@ -195,6 +242,7 @@ mod tests {
     #[test]
     fn test_can_skip() {
         let mut collector = TopKCollector::<u32>::new(2);
+        collector.begin_query();
 
         // Not full yet
         assert!(!collector.can_skip(Score::ZERO));
@@ -211,23 +259,26 @@ mod tests {
     #[test]
     fn test_count_collector() {
         let mut collector = CountCollector::new();
+        <CountCollector as Collector<u32>>::begin_query(&mut collector);
 
         collector.collect(ScoredHit::new(1u32, Score::ONE));
         collector.collect(ScoredHit::new(2u32, Score::ONE));
         collector.collect(ScoredHit::new(3u32, Score::ONE));
 
         assert_eq!(collector.count(), 3);
+        assert_eq!(<CountCollector as Collector<u32>>::finish(&mut collector), 3);
     }
 
     #[test]
     fn test_topk_keeps_higher_id_when_lowest_scores_tie() {
         let mut collector = TopKCollector::<u32>::new(2);
+        collector.begin_query();
 
         collector.collect(ScoredHit::new(0, Score::new(-84.97)));
         collector.collect(ScoredHit::new(0, Score::new(-0.47)));
         collector.collect(ScoredHit::new(1_134_700_433, Score::new(-84.97)));
 
-        let hits = collector.into_sorted_vec();
+        let hits = collector.finish();
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0], ScoredHit::new(0, Score::new(-0.47)));
         assert_eq!(hits[1], ScoredHit::new(1_134_700_433, Score::new(-84.97)));
