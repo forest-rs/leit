@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use leit_core::FieldId;
-use leit_index::InMemoryIndexBuilder;
+use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer};
 use leit_query::{Planner, PlannerScratch, PlanningContext, QueryError};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
@@ -26,6 +26,15 @@ fn multi_field_analyzers() -> FieldAnalyzers {
     analyzers
 }
 
+fn search(
+    index: &InMemoryIndex,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
+    let mut workspace = ExecutionWorkspace::new();
+    workspace.search(index, query, limit, SearchScorer::bm25())
+}
+
 #[test]
 fn bare_multi_token_terms_require_all_tokens() {
     let mut builder = InMemoryIndexBuilder::new(test_analyzers());
@@ -40,9 +49,7 @@ fn bare_multi_token_terms_require_all_tokens() {
         .expect("document should index");
     let index = builder.build_index();
 
-    let hits = index
-        .search("new york", 5)
-        .expect("multi-token bare term should search");
+    let hits = search(&index, "new york", 5).expect("multi-token bare term should search");
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].id, 1);
@@ -62,7 +69,7 @@ fn repeated_field_values_merge_term_frequency_within_one_document() {
         .expect("document should index");
     let index = builder.build_index();
 
-    let hits = index.search("rust", 5).expect("search should succeed");
+    let hits = search(&index, "rust", 5).expect("search should succeed");
 
     assert_eq!(hits.len(), 2);
     assert_eq!(hits[0].id, 1);
@@ -83,7 +90,7 @@ fn unqualified_search_uses_indexed_field_without_registered_alias() {
         .expect("document should index");
     let index = builder.build_index();
 
-    let hits = index.search("rust", 5).expect("search should succeed");
+    let hits = search(&index, "rust", 5).expect("search should succeed");
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].id, 1);
@@ -98,8 +105,7 @@ fn field_qualified_multi_token_terms_require_grouping() {
         .expect("document should index");
     let index = builder.build_index();
 
-    let error = index
-        .search("title:new york", 5)
+    let error = search(&index, "title:new york", 5)
         .expect_err("field-qualified multi-token terms should be rejected");
 
     assert!(matches!(
@@ -116,10 +122,9 @@ fn missing_terms_return_empty_results_for_high_level_search() {
         .expect("document should index");
     let index = builder.build_index();
 
-    let missing = index.search("missing", 10).expect("search should succeed");
-    let missing_and_present = index
-        .search("missing AND alpha", 10)
-        .expect("search should succeed");
+    let missing = search(&index, "missing", 10).expect("search should succeed");
+    let missing_and_present =
+        search(&index, "missing AND alpha", 10).expect("search should succeed");
 
     assert!(missing.is_empty());
     assert!(missing_and_present.is_empty());
@@ -139,12 +144,8 @@ fn explicit_and_matches_implicit_whitespace_conjunction() {
         .expect("document should index");
     let index = builder.build_index();
 
-    let implicit = index
-        .search("new york", 10)
-        .expect("implicit conjunction should search");
-    let explicit = index
-        .search("new AND york", 10)
-        .expect("explicit conjunction should search");
+    let implicit = search(&index, "new york", 10).expect("implicit conjunction should search");
+    let explicit = search(&index, "new AND york", 10).expect("explicit conjunction should search");
 
     assert_eq!(implicit, explicit);
 }
@@ -163,9 +164,7 @@ fn explicit_or_returns_set_union() {
         .expect("document should index");
     let index = builder.build_index();
 
-    let hits = index
-        .search("new OR york", 10)
-        .expect("or query should search");
+    let hits = search(&index, "new OR york", 10).expect("or query should search");
 
     let ids: Vec<_> = hits.into_iter().map(|hit| hit.id).collect();
     assert_eq!(ids.len(), 3);
@@ -195,15 +194,10 @@ fn field_qualified_and_mixed_scope_queries_are_stable() {
         .expect("document should index");
     let index = builder.build_index();
 
-    let title_and_title = index
-        .search("title:alpha AND title:beta", 10)
-        .expect("search should succeed");
-    let mixed_and = index
-        .search("title:alpha AND beta", 10)
-        .expect("search should succeed");
-    let mixed_or = index
-        .search("title:alpha OR beta", 10)
-        .expect("search should succeed");
+    let title_and_title =
+        search(&index, "title:alpha AND title:beta", 10).expect("search should succeed");
+    let mixed_and = search(&index, "title:alpha AND beta", 10).expect("search should succeed");
+    let mixed_or = search(&index, "title:alpha OR beta", 10).expect("search should succeed");
 
     let ids: BTreeSet<_> = title_and_title.into_iter().map(|hit| hit.id).collect();
     assert_eq!(ids, BTreeSet::from([1, 3]));

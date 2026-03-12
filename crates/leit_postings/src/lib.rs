@@ -276,9 +276,11 @@ impl<Id: EntityId> BlockCursor<Id> for InMemoryCursor<'_, Id> {
     fn block_state(&self) -> BlockCursorState<Id> {
         self.postings
             .get(self.pos)
-            .map_or(BlockCursorState::Exhausted, |posting| BlockCursorState::Ready {
-                end_doc: posting.doc_id,
-                max_term_freq: posting.term_freq,
+            .map_or(BlockCursorState::Exhausted, |posting| {
+                BlockCursorState::Ready {
+                    end_doc: posting.doc_id,
+                    max_term_freq: posting.term_freq,
+                }
             })
     }
 

@@ -7,7 +7,8 @@ The current codebase implements a Phase 1 in-memory search stack with:
 
 - query planning
 - Unicode-aware text analysis
-- BM25 scoring in the in-memory index path
+- explicit scorer selection in the in-memory index execution path
+- BM25 scoring wired through `leit_index`
 - BM25 and BM25F scoring kernels in `leit_score`
 - postings traversal
 - top-k collection
@@ -47,7 +48,7 @@ default features disabled.
 - `leit_score`: lexical scoring algorithms
 - `leit_collect`: result collectors
 - `leit_fusion`: result fusion
-- `leit_index`: in-memory indexing, search, and segment access
+- `leit_index`: in-memory indexing, explicit query execution, and segment access
 - `leit-integration-tests`: cross-crate integration coverage
 
 ## Current status

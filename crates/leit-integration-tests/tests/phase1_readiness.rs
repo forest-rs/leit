@@ -6,11 +6,12 @@
 use leit_collect::{Collector, CountCollector, TopKCollector};
 use leit_core::{EntityId, Score, ScoredHit, ScratchSpace, Workspace};
 use leit_fusion::{RankedResult, fuse_default};
-use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, SectionKind, SegmentView};
+use leit_index::{
+    ExecutionWorkspace, InMemoryIndexBuilder, SearchScorer, SectionKind, SegmentView,
+};
 use leit_postings::DocCursor;
 use leit_query::{
-    FeatureSet, FieldRegistry, QueryNode, Planner, PlannerScratch, PlanningContext,
-    TermDictionary,
+    FeatureSet, FieldRegistry, Planner, PlannerScratch, PlanningContext, QueryNode, TermDictionary,
 };
 use leit_score::{Bm25FScorer, Bm25Params, Bm25Scorer, FieldStats, ScoringStats};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
@@ -408,7 +409,10 @@ fn test_count_collector_trait_contract() {
     assert_eq!(Collector::<u32>::len(&collector), 3);
     assert_eq!(collector.count(), 3);
     assert!(!Collector::<u32>::is_empty(&collector));
-    assert_eq!(<CountCollector as Collector<u32>>::finish(&mut collector), 3);
+    assert_eq!(
+        <CountCollector as Collector<u32>>::finish(&mut collector),
+        3
+    );
 }
 
 #[derive(Default)]
@@ -645,8 +649,13 @@ fn test_e2e_search_pipeline() {
     let index = builder.build_index();
 
     let mut workspace = ExecutionWorkspace::new();
-    let hits = index
-        .search_with_workspace("title:rust OR body:retrieval", 10, &mut workspace)
+    let hits = workspace
+        .search(
+            &index,
+            "title:rust OR body:retrieval",
+            10,
+            SearchScorer::bm25(),
+        )
         .expect("search should succeed");
 
     assert_eq!(hits.len(), 2);

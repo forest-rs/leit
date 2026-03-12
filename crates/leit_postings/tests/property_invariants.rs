@@ -106,5 +106,8 @@ fn in_memory_cursor_exposes_singleton_block_seam() {
         }
     );
     assert!(!BlockCursor::advance_block(&mut cursor));
-    assert_eq!(BlockCursor::block_state(&cursor), BlockCursorState::Exhausted);
+    assert_eq!(
+        BlockCursor::block_state(&cursor),
+        BlockCursorState::Exhausted
+    );
 }

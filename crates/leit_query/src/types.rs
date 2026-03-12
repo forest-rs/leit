@@ -445,10 +445,7 @@ impl QueryProgram {
     }
 }
 
-fn validate_planned_program(
-    nodes: &[QueryNode],
-    root: QueryNodeId,
-) -> Result<(), QueryError> {
+fn validate_planned_program(nodes: &[QueryNode], root: QueryNodeId) -> Result<(), QueryError> {
     let contains = |id: QueryNodeId| (id.as_u32() as usize) < nodes.len();
 
     if !contains(root) {

@@ -25,8 +25,8 @@ mod types;
 use types::QueryArena;
 pub use types::{
     BooleanOp, BooleanView, BoostView, ExecutionPlan, ExtractionError, FeatureSet, FieldRegistry,
-    PhraseView, QueryNode, QueryProgram, PlannerScratch, PlanningContext, QueryError,
-    UserQueryNode, UserQueryProgram, TermDictionary, TermView,
+    PhraseView, PlannerScratch, PlanningContext, QueryError, QueryNode, QueryProgram,
+    TermDictionary, TermView, UserQueryNode, UserQueryProgram,
 };
 
 // ============================================================================
@@ -67,7 +67,8 @@ impl QueryBuilder {
                     .expect("query arena cannot be empty"),
             )
         });
-        UserQueryProgram::is_valid(&self.arena, root).then(|| UserQueryProgram::new(self.arena, root))
+        UserQueryProgram::is_valid(&self.arena, root)
+            .then(|| UserQueryProgram::new(self.arena, root))
     }
 
     /// Set the root node for the query program.

@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use leit_core::FieldId;
-use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder};
+use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -57,8 +57,9 @@ fn build_index(corpus: &[(bool, bool, bool)]) -> InMemoryIndex {
 }
 
 fn result_ids(index: &InMemoryIndex, query: &str, limit: usize) -> BTreeSet<u32> {
-    index
-        .search(query, limit)
+    let mut workspace = ExecutionWorkspace::new();
+    workspace
+        .search(index, query, limit, SearchScorer::bm25())
         .expect("query should search")
         .into_iter()
         .map(|hit| hit.id)
@@ -144,13 +145,14 @@ proptest! {
         let queries = ["alpha AND beta", "alpha OR gamma", "NOT beta", "alpha beta"];
         let query = queries[query_index];
 
-        let fresh = index
-            .search(query, limit)
+        let mut fresh_workspace = ExecutionWorkspace::new();
+        let fresh = fresh_workspace
+            .search(&index, query, limit, SearchScorer::bm25())
             .expect("fresh workspace search should succeed");
 
         let mut workspace = ExecutionWorkspace::new();
-        let reused = index
-            .search_with_workspace(query, limit, &mut workspace)
+        let reused = workspace
+            .search(&index, query, limit, SearchScorer::bm25())
             .expect("reused workspace search should succeed");
 
         prop_assert_eq!(reused, fresh);

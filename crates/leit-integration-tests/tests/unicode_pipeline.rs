@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use leit_core::FieldId;
-use leit_index::InMemoryIndexBuilder;
+use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer};
 use leit_text::{
     Analyzer, CaseMapping, FieldAnalyzers, Normalizer, UnicodeNormalizer, WhitespaceTokenizer,
 };
@@ -79,6 +79,13 @@ fn normalize_for_expectation(token: &str) -> String {
     default_normalizer().normalize(token)
 }
 
+fn search(index: &InMemoryIndex, query: &str) -> Vec<leit_core::ScoredHit<u32>> {
+    let mut workspace = ExecutionWorkspace::new();
+    workspace
+        .search(index, query, 16, SearchScorer::bm25())
+        .expect("search should succeed")
+}
+
 fn build_document(token_indexes: &[usize], separator_indexes: &[usize]) -> String {
     let mut document = String::new();
     for (position, token_index) in token_indexes.iter().copied().enumerate() {
@@ -128,7 +135,7 @@ proptest! {
         }
 
         let index = builder.build_index();
-        let hits = index.search(query, 16).expect("search should succeed");
+        let hits = search(&index, query);
         let actual: BTreeSet<_> = hits.into_iter().map(|hit| hit.id).collect();
 
         prop_assert_eq!(actual, expected);
@@ -151,11 +158,11 @@ fn unicode_search_matches_case_and_canonical_variants() {
 
     let index = builder.build_index();
 
-    let cafe_hits = index.search("café", 16).expect("search should succeed");
+    let cafe_hits = search(&index, "café");
     let cafe_ids: BTreeSet<_> = cafe_hits.into_iter().map(|hit| hit.id).collect();
     assert_eq!(cafe_ids, BTreeSet::from([1, 2]));
 
-    let greek_hits = index.search("σπίτι", 16).expect("search should succeed");
+    let greek_hits = search(&index, "σπίτι");
     let greek_ids: BTreeSet<_> = greek_hits.into_iter().map(|hit| hit.id).collect();
     assert_eq!(greek_ids, BTreeSet::from([3]));
 }
@@ -170,7 +177,7 @@ fn unicode_search_can_opt_into_case_fold_matching() {
 
     let index = builder.build_index();
 
-    let hits = index.search("STRASSE", 16).expect("search should succeed");
+    let hits = search(&index, "STRASSE");
     let actual: BTreeSet<_> = hits.into_iter().map(|hit| hit.id).collect();
     assert_eq!(actual, BTreeSet::from([1]));
 }
@@ -185,7 +192,7 @@ fn unicode_search_uses_context_sensitive_lowercase_behavior() {
 
     let index = builder.build_index();
 
-    let hits = index.search("ος", 16).expect("search should succeed");
+    let hits = search(&index, "ος");
     let actual: BTreeSet<_> = hits.into_iter().map(|hit| hit.id).collect();
     assert_eq!(actual, BTreeSet::from([1]));
 }

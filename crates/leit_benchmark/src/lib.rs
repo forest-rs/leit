@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use leit_core::FieldId;
-use leit_index::InMemoryIndexBuilder;
+use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, SearchScorer};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
 /// A fixed Phase 1 benchmark document.
@@ -140,19 +140,22 @@ pub fn run_scenario(scenario: &BenchmarkScenario) -> Result<BenchmarkReport, Str
         builder
             .index_document(
                 document.id,
-                &[(FieldId::new(1), document.title), (FieldId::new(2), document.body)],
+                &[
+                    (FieldId::new(1), document.title),
+                    (FieldId::new(2), document.body),
+                ],
             )
             .map_err(|error| format!("indexing document {} failed: {error:?}", document.id))?;
     }
-    let index = builder
-        .build_index();
+    let index = builder.build_index();
     let indexing_time = indexing_start.elapsed();
 
     let mut query_runs = Vec::with_capacity(scenario.queries.len());
+    let mut workspace = ExecutionWorkspace::new();
     for query in &scenario.queries {
         let query_start = Instant::now();
-        let hits = index
-            .search(query.text, query.limit)
+        let hits = workspace
+            .search(&index, query.text, query.limit, SearchScorer::bm25())
             .map_err(|error| format!("benchmark query '{}' failed: {error:?}", query.name))?;
         let latency = query_start.elapsed();
         let hit_ids = hits.iter().map(|hit| hit.id).collect();

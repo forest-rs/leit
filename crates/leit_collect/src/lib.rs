@@ -266,7 +266,10 @@ mod tests {
         collector.collect(ScoredHit::new(3u32, Score::ONE));
 
         assert_eq!(collector.count(), 3);
-        assert_eq!(<CountCollector as Collector<u32>>::finish(&mut collector), 3);
+        assert_eq!(
+            <CountCollector as Collector<u32>>::finish(&mut collector),
+            3
+        );
     }
 
     #[test]

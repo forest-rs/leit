@@ -2,8 +2,8 @@
 
 use leit_core::{FieldId, QueryNodeId, TermId};
 use leit_query::{
-    FeatureSet, FieldRegistry, QueryNode, QueryProgram, Planner, PlannerScratch,
-    PlanningContext, QueryError, TermDictionary,
+    FeatureSet, FieldRegistry, Planner, PlannerScratch, PlanningContext, QueryError, QueryNode,
+    QueryProgram, TermDictionary,
 };
 
 #[derive(Debug, Default)]

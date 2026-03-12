@@ -5,12 +5,26 @@ Phase 1 indexing and segment access for Leit.
 This crate provides:
 
 - `InMemoryIndexBuilder` to build an in-memory inverted index
-- `InMemoryIndex` to search that index
+- `InMemoryIndex` to hold immutable retrieval data
 - `SegmentView` to validate and read serialized segments from `&[u8]`
-- `ExecutionWorkspace` to reuse search scratch state
+- `ExecutionWorkspace` to plan and execute queries with reusable scratch state
+- `SearchScorer` to choose the ranking policy for execution
 
 The public surface stays small. Query planning lives in `leit-query`, but most
-callers can search through `InMemoryIndex` without building planner contexts.
+callers can stay at the `leit-index` layer by planning and executing through an
+`ExecutionWorkspace`.
+
+Typical Phase 1 flow:
+
+```rust
+use leit_collect::TopKCollector;
+use leit_index::{ExecutionWorkspace, SearchScorer};
+
+let mut workspace = ExecutionWorkspace::new();
+let plan = workspace.plan(&index, "title:rust OR body:retrieval")?;
+let mut collector = TopKCollector::new(10);
+let hits = workspace.execute(&index, &plan, SearchScorer::bm25(), &mut collector)?;
+```
 
 This crate is structured for `no_std + alloc` builds, with `std` enabled by
 default for the current Phase 1 path.

@@ -1,7 +1,7 @@
 //! Property-based invariant tests for `leit_query`.
 
 use leit_core::{FieldId, QueryNodeId, TermId};
-use leit_query::{QueryNode, QueryProgram, QueryBuilder, QueryError};
+use leit_query::{QueryBuilder, QueryError, QueryNode, QueryProgram};
 use proptest::collection::vec;
 use proptest::prelude::*;
 

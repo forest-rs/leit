@@ -89,7 +89,10 @@ fn collector_reuse_clears_previous_query_state() {
 
     <TopKCollector<u32> as Collector<u32>>::begin_query(&mut collector);
     assert!(<TopKCollector<u32> as Collector<u32>>::finish(&mut collector).is_empty());
-    assert_eq!(<TopKCollector<u32> as Collector<u32>>::threshold(&collector), None);
+    assert_eq!(
+        <TopKCollector<u32> as Collector<u32>>::threshold(&collector),
+        None
+    );
 
     collector.collect(ScoredHit::new(3, Score::new(0.3)));
     let second_hits = <TopKCollector<u32> as Collector<u32>>::finish(&mut collector);
@@ -101,11 +104,17 @@ fn threshold_is_absent_until_topk_reaches_capacity() {
     let mut collector = TopKCollector::<u32>::new(2);
 
     <TopKCollector<u32> as Collector<u32>>::begin_query(&mut collector);
-    assert_eq!(<TopKCollector<u32> as Collector<u32>>::threshold(&collector), None);
+    assert_eq!(
+        <TopKCollector<u32> as Collector<u32>>::threshold(&collector),
+        None
+    );
     assert!(!collector.can_skip(Score::new(0.1)));
 
     collector.collect(ScoredHit::new(1, Score::new(0.5)));
-    assert_eq!(<TopKCollector<u32> as Collector<u32>>::threshold(&collector), None);
+    assert_eq!(
+        <TopKCollector<u32> as Collector<u32>>::threshold(&collector),
+        None
+    );
     assert!(!collector.can_skip(Score::new(0.4)));
 
     collector.collect(ScoredHit::new(2, Score::new(0.8)));

@@ -6,8 +6,8 @@ use core::ops::{AddAssign, MulAssign};
 use leit_collect::{Collector, TopKCollector};
 use leit_core::{FieldId, QueryNodeId, Score, ScoredHit, ScratchSpace, TermId};
 use leit_query::{
-    ExecutionPlan, FieldRegistry, QueryNode, QueryProgram, Planner, PlannerScratch,
-    PlanningContext, TermDictionary,
+    ExecutionPlan, FieldRegistry, Planner, PlannerScratch, PlanningContext, QueryNode,
+    QueryProgram, TermDictionary,
 };
 use leit_score::{Bm25Scorer, ScoringStats};
 use leit_text::FieldAnalyzers;
@@ -110,10 +110,86 @@ pub struct ExecutionWorkspace {
     planner: PlannerScratch,
 }
 
+/// Explicit scorer selection for Phase 1 search execution.
+#[derive(Clone, Copy, Debug)]
+pub enum SearchScorer {
+    /// Standard BM25 lexical scoring.
+    Bm25(Bm25Scorer),
+}
+
+impl SearchScorer {
+    /// Create a BM25 scorer selection with default parameters.
+    pub const fn bm25() -> Self {
+        Self::Bm25(Bm25Scorer::new())
+    }
+
+    fn score_term(
+        self,
+        term_frequency: u32,
+        doc_length: u32,
+        avg_doc_length: f32,
+        doc_count: u32,
+        doc_frequency: u32,
+    ) -> Score {
+        match self {
+            Self::Bm25(scorer) => scorer.score(&ScoringStats {
+                term_frequency,
+                doc_length,
+                avg_doc_length,
+                doc_count,
+                doc_frequency,
+            }),
+        }
+    }
+}
+
 impl ExecutionWorkspace {
     /// Create an empty execution workspace.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Plan a textual query for this index using reusable scratch state.
+    pub fn plan(
+        &mut self,
+        index: &InMemoryIndex,
+        query: &str,
+    ) -> Result<ExecutionPlan, IndexError> {
+        self.clear();
+        let planner = Planner::new();
+        let default_field = index.default_field();
+        let dictionary = SearchDictionary { index };
+        let context = PlanningContext::new(&dictionary, index).with_default_field(default_field);
+        planner
+            .plan(query, &context, &mut self.planner)
+            .map_err(IndexError::Query)
+    }
+
+    /// Execute a planned query with an explicit scorer and collector.
+    pub fn execute<C: Collector<u32>>(
+        &mut self,
+        index: &InMemoryIndex,
+        plan: &ExecutionPlan,
+        scorer: SearchScorer,
+        collector: &mut C,
+    ) -> Result<C::Output, IndexError> {
+        collector.begin_query();
+        let result = index.evaluate_plan(plan, scorer)?;
+        InMemoryIndex::collect_result(result, collector);
+        Ok(collector.finish())
+    }
+
+    /// Plan and execute a textual query with an explicit scorer.
+    pub fn search(
+        &mut self,
+        index: &InMemoryIndex,
+        query: &str,
+        limit: usize,
+        scorer: SearchScorer,
+    ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
+        let plan = self.plan(index, query)?;
+        let mut collector = TopKCollector::new(limit);
+        self.execute(index, &plan, scorer, &mut collector)
     }
 }
 
@@ -320,81 +396,60 @@ impl InMemoryIndex {
         total / usize_to_f32(self.doc_lengths.len())
     }
 
-    /// Search the index and return the highest-scoring hits.
-    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<ScoredHit<u32>>, IndexError> {
-        let mut workspace = ExecutionWorkspace::new();
-        self.search_with_workspace(query, limit, &mut workspace)
-    }
-
-    /// Search using a reusable execution workspace.
-    pub fn search_with_workspace(
-        &self,
-        query: &str,
-        limit: usize,
-        workspace: &mut ExecutionWorkspace,
-    ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
-        workspace.clear();
-        let planner = Planner::new();
-        let default_field = self
-            .field_stats
+    fn default_field(&self) -> FieldId {
+        self.field_stats
             .values()
             .map(|stats| stats.field_id)
             .min()
             .or_else(|| self.field_names.values().min().copied())
-            .unwrap_or(FieldId::new(0));
-        let dictionary = SearchDictionary { index: self };
-        let context = PlanningContext::new(&dictionary, self).with_default_field(default_field);
-        let plan = planner
-            .plan(query, &context, &mut workspace.planner)
-            .map_err(IndexError::Query)?;
-
-        let result = self.evaluate_plan(&plan)?;
-        let mut collector = TopKCollector::new(limit);
-        collector.begin_query();
-        Self::collect_result(result, &mut collector);
-        Ok(collector.finish())
+            .unwrap_or(FieldId::new(0))
     }
 
-    fn evaluate_plan(&self, plan: &ExecutionPlan) -> Result<EvalResult, IndexError> {
-        self.evaluate_node(plan.program.root(), &plan.program)
+    fn evaluate_plan(
+        &self,
+        plan: &ExecutionPlan,
+        scorer: SearchScorer,
+    ) -> Result<EvalResult, IndexError> {
+        self.evaluate_node(plan.program.root(), &plan.program, scorer)
     }
 
     fn evaluate_node(
         &self,
         node_id: QueryNodeId,
         program: &QueryProgram,
+        scoring: SearchScorer,
     ) -> Result<EvalResult, IndexError> {
         let Some(node) = program.get(node_id) else {
             return Ok(EvalResult::default());
         };
 
         match node {
-            QueryNode::Term { term, boost, .. } => Ok(self.eval_term(*term, *boost)),
+            QueryNode::Term { term, boost, .. } => Ok(self.eval_term(*term, *boost, scoring)),
             QueryNode::Or { children, boost } => {
-                let mut scores = BTreeMap::new();
+                let mut results = BTreeMap::new();
                 for child in children {
-                    let child_result = self.evaluate_node(*child, program)?;
+                    let child_result = self.evaluate_node(*child, program, scoring)?;
                     for (doc_id, score) in child_result.scores {
-                        let entry = scores.entry(doc_id).or_insert(Score::ZERO);
+                        let entry = results.entry(doc_id).or_insert(Score::ZERO);
                         AddAssign::add_assign(entry, score);
                     }
                 }
                 if is_non_unit_boost(*boost) {
-                    for score in scores.values_mut() {
+                    for score in results.values_mut() {
                         MulAssign::mul_assign(score, *boost);
                     }
                 }
-                Ok(EvalResult::from_scores(scores))
+                Ok(EvalResult::from_scores(results))
             }
             QueryNode::And { children, boost } => {
                 let mut iter = children.iter();
                 let Some(first) = iter.next() else {
                     return Ok(EvalResult::default());
                 };
-                let mut scores = self.evaluate_node(*first, program)?.scores;
+                let mut results = self.evaluate_node(*first, program, scoring)?.scores;
                 for child in iter {
-                    let child_scores = self.evaluate_node(*child, program)?.scores;
-                    scores.retain(|doc_id, score| {
+                    let child_scores = self.evaluate_node(*child, program, scoring)?.scores;
+                    results.retain(|doc_id, score| {
                         child_scores.get(doc_id).is_some_and(|child_score| {
                             AddAssign::add_assign(score, *child_score);
                             true
@@ -402,24 +457,24 @@ impl InMemoryIndex {
                     });
                 }
                 if is_non_unit_boost(*boost) {
-                    for score in scores.values_mut() {
+                    for score in results.values_mut() {
                         MulAssign::mul_assign(score, *boost);
                     }
                 }
-                Ok(EvalResult::from_scores(scores))
+                Ok(EvalResult::from_scores(results))
             }
             QueryNode::Not { child } => {
-                let child_scores = self.evaluate_node(*child, program)?.scores;
-                let mut scores = BTreeMap::new();
+                let child_scores = self.evaluate_node(*child, program, scoring)?.scores;
+                let mut results = BTreeMap::new();
                 for doc_id in &self.documents {
                     if !child_scores.contains_key(doc_id) {
-                        scores.insert(*doc_id, Score::ONE);
+                        results.insert(*doc_id, Score::ONE);
                     }
                 }
-                Ok(EvalResult::from_scores(scores))
+                Ok(EvalResult::from_scores(results))
             }
             QueryNode::ConstantScore { child, score } => {
-                let mut result = self.evaluate_node(*child, program)?;
+                let mut result = self.evaluate_node(*child, program, scoring)?;
                 for value in result.scores.values_mut() {
                     MulAssign::mul_assign(value, *score);
                 }
@@ -428,13 +483,12 @@ impl InMemoryIndex {
         }
     }
 
-    fn eval_term(&self, term: TermId, boost: f32) -> EvalResult {
-        let mut scores = BTreeMap::new();
+    fn eval_term(&self, term: TermId, boost: f32, scoring: SearchScorer) -> EvalResult {
+        let mut results = BTreeMap::new();
         let Some(postings) = self.postings.get(&term) else {
             return EvalResult::default();
         };
 
-        let bm25 = Bm25Scorer::new();
         let avg_doc_length = self.avg_doc_length();
         let doc_count = self.document_count();
         let doc_frequency = u32::try_from(postings.len()).unwrap_or(u32::MAX);
@@ -445,21 +499,20 @@ impl InMemoryIndex {
                 .get(&posting.doc_id)
                 .copied()
                 .unwrap_or_default();
-            let stats = ScoringStats {
-                term_frequency: posting.term_freq,
+            let mut score = scoring.score_term(
+                posting.term_freq,
                 doc_length,
                 avg_doc_length,
                 doc_count,
                 doc_frequency,
-            };
-            let mut score = bm25.score(&stats);
+            );
             if is_non_unit_boost(boost) {
                 MulAssign::mul_assign(&mut score, boost);
             }
-            scores.insert(posting.doc_id, score);
+            results.insert(posting.doc_id, score);
         }
 
-        EvalResult::from_scores(scores)
+        EvalResult::from_scores(results)
     }
 
     fn collect_result<C: Collector<u32>>(result: EvalResult, collector: &mut C) {

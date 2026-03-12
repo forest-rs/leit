@@ -4,6 +4,8 @@
 //!
 //! Phase 1 keeps this crate concrete:
 //! - `InMemoryIndex` builds a small in-memory inverted index
+//! - `ExecutionWorkspace` plans and executes queries against that index
+//! - `SearchScorer` makes ranking policy explicit at execution time
 //! - `SegmentView` opens and validates a borrowed segment from `&[u8]`
 //!
 //! The borrowed-open seam is the important extension point for future
@@ -17,5 +19,7 @@ mod memory;
 mod segment;
 
 pub use error::{IndexError, SegmentError};
-pub use memory::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, IndexBuilder};
+pub use memory::{
+    ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, IndexBuilder, SearchScorer,
+};
 pub use segment::{SectionKind, SegmentView};
