@@ -16,3 +16,9 @@ Add the public block-aware cursor extension seam expected by the Phase 1 handoff
 
 leit_postings exposes DocCursor, TfCursor, and a block-aware extension seam.\nThe in-memory implementation either supports the extension minimally or reports unsupported behavior explicitly.\nInvariant tests cover existing cursor traversal guarantees and the public extension contract.
 
+
+## Notes
+
+**2026-03-12T04:13:51Z**
+
+Added a public block-aware cursor seam in leit_postings: BlockCursorState plus BlockCursor over the existing DocCursor/TfCursor layering. The in-memory cursor exposes singleton blocks rather than reporting unsupported. Verified with cargo test -p leit_postings, cargo test -p leit-integration-tests --test phase1_readiness, and cargo clippy -p leit_postings --all-targets -- -D warnings.

@@ -6,7 +6,7 @@ This crate provides:
 
 - `Posting` and `PostingsList` for inverted-list storage
 - `TermDictionary` for term to `TermId` mapping
-- `DocCursor` and `TfCursor` for postings traversal
+- `DocCursor`, `TfCursor`, and `BlockCursor` for layered postings traversal
 - `InMemoryPostings` and `InMemoryCursor` for the Phase 1 in-memory path
 
 Postings lists preserve document order so higher layers can rely on cursor

@@ -3,7 +3,9 @@
 use std::collections::BTreeMap;
 
 use leit_core::TermId;
-use leit_postings::{DocCursor, InMemoryPostings, Posting, PostingsList, TfCursor};
+use leit_postings::{
+    BlockCursor, BlockCursorState, DocCursor, InMemoryPostings, Posting, PostingsList, TfCursor,
+};
 use proptest::collection::vec;
 use proptest::prelude::*;
 
@@ -66,4 +68,43 @@ proptest! {
             prop_assert_eq!(cursor.term_freq(), expected[&doc_id]);
         }
     }
+}
+
+#[test]
+fn in_memory_cursor_exposes_singleton_block_seam() {
+    let term_id = TermId::new(7);
+    let mut list = PostingsList::new(term_id);
+    list.add(Posting {
+        doc_id: 3_u32,
+        term_freq: 2,
+        positions: None,
+    });
+    list.add(Posting {
+        doc_id: 9_u32,
+        term_freq: 5,
+        positions: None,
+    });
+
+    let mut postings = InMemoryPostings::new();
+    postings.add(list);
+    let mut cursor = postings.cursor(term_id).expect("cursor should exist");
+
+    assert_eq!(
+        BlockCursor::block_state(&cursor),
+        BlockCursorState::Ready {
+            end_doc: 3_u32,
+            max_term_freq: 2,
+        }
+    );
+    assert!(BlockCursor::advance_block(&mut cursor));
+    assert_eq!(cursor.doc(), Some(9_u32));
+    assert_eq!(
+        BlockCursor::block_state(&cursor),
+        BlockCursorState::Ready {
+            end_doc: 9_u32,
+            max_term_freq: 5,
+        }
+    );
+    assert!(!BlockCursor::advance_block(&mut cursor));
+    assert_eq!(BlockCursor::block_state(&cursor), BlockCursorState::Exhausted);
 }

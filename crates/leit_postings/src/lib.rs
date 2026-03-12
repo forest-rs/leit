@@ -160,6 +160,32 @@ pub trait TfCursor<Id: EntityId>: DocCursor<Id> {
     fn term_freq(&self) -> u32;
 }
 
+/// Public block-aware cursor state for optional pruning-oriented traversal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockCursorState<Id: EntityId> {
+    /// The cursor does not expose block metadata.
+    Unsupported,
+    /// The cursor has advanced past the end of the postings list.
+    Exhausted,
+    /// The cursor is positioned on a block with simple summary metadata.
+    Ready {
+        /// Inclusive end document for the current block.
+        end_doc: Id,
+        /// Maximum term frequency within the current block.
+        max_term_freq: u32,
+    },
+}
+
+/// Optional block-aware cursor extension.
+pub trait BlockCursor<Id: EntityId>: TfCursor<Id> {
+    /// Return the current block summary or explain why it is unavailable.
+    fn block_state(&self) -> BlockCursorState<Id>;
+
+    /// Advance to the next block.
+    /// Returns `true` when another block is available.
+    fn advance_block(&mut self) -> bool;
+}
+
 // ============================================================================
 // InMemoryPostings
 // ============================================================================
@@ -246,6 +272,21 @@ impl<Id: EntityId> TfCursor<Id> for InMemoryCursor<'_, Id> {
     }
 }
 
+impl<Id: EntityId> BlockCursor<Id> for InMemoryCursor<'_, Id> {
+    fn block_state(&self) -> BlockCursorState<Id> {
+        self.postings
+            .get(self.pos)
+            .map_or(BlockCursorState::Exhausted, |posting| BlockCursorState::Ready {
+                end_doc: posting.doc_id,
+                max_term_freq: posting.term_freq,
+            })
+    }
+
+    fn advance_block(&mut self) -> bool {
+        self.advance()
+    }
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -294,12 +335,33 @@ mod tests {
         let mut cursor = postings.cursor(term_id).unwrap();
         assert_eq!(cursor.doc(), Some(1u32));
         assert_eq!(cursor.term_freq(), 2);
+        assert_eq!(
+            cursor.block_state(),
+            BlockCursorState::Ready {
+                end_doc: 1u32,
+                max_term_freq: 2,
+            }
+        );
 
         assert!(cursor.advance());
         assert_eq!(cursor.doc(), Some(3u32));
+        assert_eq!(
+            cursor.block_state(),
+            BlockCursorState::Ready {
+                end_doc: 3u32,
+                max_term_freq: 1,
+            }
+        );
 
         assert!(cursor.seek(4u32));
         assert_eq!(cursor.doc(), Some(5u32));
+        assert_eq!(
+            cursor.block_state(),
+            BlockCursorState::Ready {
+                end_doc: 5u32,
+                max_term_freq: 3,
+            }
+        );
     }
 
     #[test]
