@@ -5,8 +5,8 @@ Query construction and planning for Leit.
 This crate provides:
 
 - `QueryBuilder` and fluent helpers for building query programs
-- `QueryProgram` for inspection-friendly query trees
-- `PlannedQueryProgram` and `ExecutionPlan` for execution-facing plans
+- `UserQueryProgram` for inspection-friendly query trees
+- `QueryProgram` and `ExecutionPlan` for execution-facing plans
 - `Planner` for Phase 1 query parsing and lowering
 - traits such as `FieldRegistry` and `TermDictionary` for planning context
 

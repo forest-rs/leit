@@ -9,7 +9,7 @@ use leit_fusion::{RankedResult, fuse_default};
 use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, SectionKind, SegmentView};
 use leit_postings::DocCursor;
 use leit_query::{
-    FeatureSet, FieldRegistry, PlannedQueryNode, Planner, PlannerScratch, PlanningContext,
+    FeatureSet, FieldRegistry, QueryNode, Planner, PlannerScratch, PlanningContext,
     TermDictionary,
 };
 use leit_score::{Bm25FScorer, Bm25Params, Bm25Scorer, FieldStats, ScoringStats};
@@ -503,7 +503,7 @@ fn test_query_execution() {
     assert_eq!(plan.required_features, FeatureSet::basic());
 
     match plan.program.get(plan.program.root()) {
-        Some(PlannedQueryNode::Or { children, boost }) => {
+        Some(QueryNode::Or { children, boost }) => {
             assert_close_f32(*boost, 1.0, "default planning boost");
             assert_eq!(children.len(), 2);
         }

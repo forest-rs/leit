@@ -2,7 +2,7 @@
 
 use leit_core::{FieldId, QueryNodeId, TermId};
 use leit_query::{
-    FeatureSet, FieldRegistry, PlannedQueryNode, PlannedQueryProgram, Planner, PlannerScratch,
+    FeatureSet, FieldRegistry, QueryNode, QueryProgram, Planner, PlannerScratch,
     PlanningContext, QueryError, TermDictionary,
 };
 
@@ -88,13 +88,43 @@ fn test_planner_builds_default_field_term_program() {
     assert!(plan.selectivity >= 0.0);
 
     match plan.program.get(plan.program.root()) {
-        Some(PlannedQueryNode::Term { field, term, boost }) => {
+        Some(QueryNode::Term { field, term, boost }) => {
             assert_eq!(*field, TestFieldRegistry::body());
             assert_eq!(*term, TestDictionary::rust());
             assert_f32_eq(*boost, 1.0);
         }
         other => panic!("expected term node, got {other:?}"),
     }
+}
+
+#[test]
+fn test_execution_query_program_uses_canonical_term_handles() {
+    let planner = Planner::new();
+    let dictionary = TestDictionary;
+    let fields = TestFieldRegistry;
+    let mut scratch = PlannerScratch::new();
+    let context = planner_context(&dictionary, &fields);
+
+    let default_plan = planner
+        .plan("rust", &context, &mut scratch)
+        .expect("plan bare term");
+    let default_term = match default_plan.program.get(default_plan.program.root()) {
+        Some(QueryNode::Term { term, .. }) => *term,
+        other => panic!("expected canonical term node, got {other:?}"),
+    };
+
+    scratch.reset();
+    let explicit_plan = planner
+        .plan("body:rust", &context, &mut scratch)
+        .expect("plan explicit field term");
+    let explicit_term = match explicit_plan.program.get(explicit_plan.program.root()) {
+        Some(QueryNode::Term { term, .. }) => *term,
+        other => panic!("expected canonical term node, got {other:?}"),
+    };
+
+    assert_eq!(default_term, TestDictionary::rust());
+    assert_eq!(explicit_term, TestDictionary::rust());
+    assert_eq!(default_term, explicit_term);
 }
 
 #[test]
@@ -113,7 +143,7 @@ fn test_planner_builds_field_qualified_boolean_program() {
     assert_eq!(plan.program.max_depth(), 2);
 
     match plan.program.get(plan.program.root()) {
-        Some(PlannedQueryNode::And { children, boost }) => {
+        Some(QueryNode::And { children, boost }) => {
             assert_f32_eq(*boost, 1.0);
             assert_eq!(children.len(), 2);
         }
@@ -179,11 +209,11 @@ fn test_planner_parses_and_tighter_than_or() {
         .expect("mixed boolean query should plan");
 
     match plan.program.get(plan.program.root()) {
-        Some(PlannedQueryNode::Or { children, .. }) => {
+        Some(QueryNode::Or { children, .. }) => {
             assert_eq!(children.len(), 2);
 
             match plan.program.get(children[1]) {
-                Some(PlannedQueryNode::And { children, .. }) => {
+                Some(QueryNode::And { children, .. }) => {
                     assert_eq!(children.len(), 2);
                 }
                 other => panic!("expected AND as OR rhs, got {other:?}"),
@@ -206,13 +236,13 @@ fn test_planner_lowers_bare_multi_token_terms_to_and() {
         .expect("whitespace-separated terms should plan");
 
     match plan.program.get(plan.program.root()) {
-        Some(PlannedQueryNode::And { children, boost }) => {
+        Some(QueryNode::And { children, boost }) => {
             assert_f32_eq(*boost, 1.0);
             assert_eq!(children.len(), 2);
             for child in children {
                 assert!(matches!(
                     plan.program.get(*child),
-                    Some(PlannedQueryNode::Term { .. })
+                    Some(QueryNode::Term { .. })
                 ));
             }
         }
@@ -238,8 +268,8 @@ fn test_planner_rejects_field_qualified_multi_token_terms_without_grouping() {
 #[test]
 #[should_panic(expected = "planned query program contains invalid references")]
 fn test_planned_query_program_rejects_invalid_child_id() {
-    let _ = PlannedQueryProgram::new(
-        vec![PlannedQueryNode::Or {
+    let _ = QueryProgram::new(
+        vec![QueryNode::Or {
             children: vec![QueryNodeId::new(1)],
             boost: 1.0,
         }],

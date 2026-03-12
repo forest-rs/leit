@@ -6,7 +6,7 @@ use core::ops::{AddAssign, MulAssign};
 use leit_collect::{Collector, TopKCollector};
 use leit_core::{FieldId, QueryNodeId, Score, ScoredHit, ScratchSpace, TermId};
 use leit_query::{
-    ExecutionPlan, FieldRegistry, PlannedQueryNode, PlannedQueryProgram, Planner, PlannerScratch,
+    ExecutionPlan, FieldRegistry, QueryNode, QueryProgram, Planner, PlannerScratch,
     PlanningContext, TermDictionary,
 };
 use leit_score::{Bm25Scorer, ScoringStats};
@@ -361,15 +361,15 @@ impl InMemoryIndex {
     fn evaluate_node(
         &self,
         node_id: QueryNodeId,
-        program: &PlannedQueryProgram,
+        program: &QueryProgram,
     ) -> Result<EvalResult, IndexError> {
         let Some(node) = program.get(node_id) else {
             return Ok(EvalResult::default());
         };
 
         match node {
-            PlannedQueryNode::Term { term, boost, .. } => Ok(self.eval_term(*term, *boost)),
-            PlannedQueryNode::Or { children, boost } => {
+            QueryNode::Term { term, boost, .. } => Ok(self.eval_term(*term, *boost)),
+            QueryNode::Or { children, boost } => {
                 let mut scores = BTreeMap::new();
                 for child in children {
                     let child_result = self.evaluate_node(*child, program)?;
@@ -385,7 +385,7 @@ impl InMemoryIndex {
                 }
                 Ok(EvalResult::from_scores(scores))
             }
-            PlannedQueryNode::And { children, boost } => {
+            QueryNode::And { children, boost } => {
                 let mut iter = children.iter();
                 let Some(first) = iter.next() else {
                     return Ok(EvalResult::default());
@@ -407,7 +407,7 @@ impl InMemoryIndex {
                 }
                 Ok(EvalResult::from_scores(scores))
             }
-            PlannedQueryNode::Not { child } => {
+            QueryNode::Not { child } => {
                 let child_scores = self.evaluate_node(*child, program)?.scores;
                 let mut scores = BTreeMap::new();
                 for doc_id in &self.documents {
@@ -417,7 +417,7 @@ impl InMemoryIndex {
                 }
                 Ok(EvalResult::from_scores(scores))
             }
-            PlannedQueryNode::ConstantScore { child, score } => {
+            QueryNode::ConstantScore { child, score } => {
                 let mut result = self.evaluate_node(*child, program)?;
                 for value in result.scores.values_mut() {
                     MulAssign::mul_assign(value, *score);

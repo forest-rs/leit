@@ -11,7 +11,7 @@ use leit_core::QueryNodeId;
 /// Internal arena storage for query nodes.
 #[derive(Debug, Default)]
 pub(crate) struct QueryArena {
-    nodes: Vec<QueryNode>,
+    nodes: Vec<UserQueryNode>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -28,7 +28,7 @@ impl QueryArena {
     }
 
     /// Push a node and return its ID.
-    pub(crate) fn push(&mut self, node: QueryNode) -> QueryNodeId {
+    pub(crate) fn push(&mut self, node: UserQueryNode) -> QueryNodeId {
         let id = QueryNodeId::new(
             u32::try_from(self.nodes.len()).expect("query arena exceeded u32 node IDs"),
         );
@@ -37,7 +37,7 @@ impl QueryArena {
     }
 
     /// Get a node by ID.
-    pub(crate) fn get(&self, id: QueryNodeId) -> Option<&QueryNode> {
+    pub(crate) fn get(&self, id: QueryNodeId) -> Option<&UserQueryNode> {
         self.nodes.get(id.as_u32() as usize)
     }
 
@@ -59,7 +59,7 @@ impl QueryArena {
 
 /// A node in a query program.
 #[derive(Clone, Debug)]
-pub enum QueryNode {
+pub enum UserQueryNode {
     /// A single term query.
     Term {
         /// The term text.
@@ -103,12 +103,12 @@ pub enum BooleanOp {
 
 /// A compiled query program with arena storage.
 #[derive(Clone, Debug)]
-pub struct QueryProgram {
+pub struct UserQueryProgram {
     arena: Arc<QueryArena>,
     root: QueryNodeId,
 }
 
-impl QueryProgram {
+impl UserQueryProgram {
     /// Create a new query program.
     pub(crate) fn new(arena: QueryArena, root: QueryNodeId) -> Self {
         Self {
@@ -123,11 +123,11 @@ impl QueryProgram {
         }
 
         arena.nodes.iter().all(|node| match node {
-            QueryNode::Boolean { children, .. } => {
+            UserQueryNode::Boolean { children, .. } => {
                 children.iter().all(|child| arena.contains(*child))
             }
-            QueryNode::Boost { child, .. } => arena.contains(*child),
-            QueryNode::Term { .. } | QueryNode::Phrase { .. } => true,
+            UserQueryNode::Boost { child, .. } => arena.contains(*child),
+            UserQueryNode::Term { .. } | UserQueryNode::Phrase { .. } => true,
         })
     }
 
@@ -142,15 +142,15 @@ impl QueryProgram {
     }
 
     /// Get a reference to a node by ID.
-    pub fn get(&self, id: QueryNodeId) -> Option<&QueryNode> {
+    pub fn get(&self, id: QueryNodeId) -> Option<&UserQueryNode> {
         self.arena.get(id)
     }
 
     /// Get the children of a boolean node.
     pub fn children_of(&self, id: QueryNodeId) -> &[QueryNodeId] {
         match self.get(id) {
-            Some(QueryNode::Boolean { children, .. }) => children.as_slice(),
-            Some(QueryNode::Boost { child, .. }) => core::slice::from_ref(child),
+            Some(UserQueryNode::Boolean { children, .. }) => children.as_slice(),
+            Some(UserQueryNode::Boost { child, .. }) => core::slice::from_ref(child),
             _ => &[],
         }
     }
@@ -168,7 +168,7 @@ impl QueryProgram {
 /// Iterator for pre-order traversal of query nodes.
 #[derive(Clone)]
 struct WalkIter<'a> {
-    program: &'a QueryProgram,
+    program: &'a UserQueryProgram,
     stack: Vec<QueryNodeId>,
     visited: Vec<QueryNodeId>,
 }
@@ -185,8 +185,8 @@ impl Iterator for WalkIter<'_> {
             if let Some(node) = self.program.get(id) {
                 self.visited.push(id);
                 let children: Vec<QueryNodeId> = match node {
-                    QueryNode::Boolean { children, .. } => children.clone(),
-                    QueryNode::Boost { child, .. } => vec![*child],
+                    UserQueryNode::Boolean { children, .. } => children.clone(),
+                    UserQueryNode::Boost { child, .. } => vec![*child],
                     _ => vec![],
                 };
                 for child in children.into_iter().rev() {
@@ -247,12 +247,12 @@ pub struct TermView {
     pub field: Option<Arc<str>>,
 }
 
-impl TryFrom<(&QueryProgram, QueryNodeId)> for TermView {
+impl TryFrom<(&UserQueryProgram, QueryNodeId)> for TermView {
     type Error = ExtractionError;
 
-    fn try_from((program, id): (&QueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
+    fn try_from((program, id): (&UserQueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
         match program.get(id) {
-            Some(QueryNode::Term { term, field }) => Ok(TermView {
+            Some(UserQueryNode::Term { term, field }) => Ok(TermView {
                 term: term.clone(),
                 field: field.clone(),
             }),
@@ -266,10 +266,10 @@ impl TryFrom<(&QueryProgram, QueryNodeId)> for TermView {
     }
 }
 
-impl TryFrom<(QueryProgram, QueryNodeId)> for TermView {
+impl TryFrom<(UserQueryProgram, QueryNodeId)> for TermView {
     type Error = ExtractionError;
 
-    fn try_from((program, id): (QueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
+    fn try_from((program, id): (UserQueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
         Self::try_from((&program, id))
     }
 }
@@ -283,12 +283,12 @@ pub struct PhraseView {
     pub slop: u32,
 }
 
-impl TryFrom<(&QueryProgram, QueryNodeId)> for PhraseView {
+impl TryFrom<(&UserQueryProgram, QueryNodeId)> for PhraseView {
     type Error = ExtractionError;
 
-    fn try_from((program, id): (&QueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
+    fn try_from((program, id): (&UserQueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
         match program.get(id) {
-            Some(QueryNode::Phrase { terms, slop }) => Ok(PhraseView {
+            Some(UserQueryNode::Phrase { terms, slop }) => Ok(PhraseView {
                 terms: terms.clone(),
                 slop: *slop,
             }),
@@ -302,10 +302,10 @@ impl TryFrom<(&QueryProgram, QueryNodeId)> for PhraseView {
     }
 }
 
-impl TryFrom<(QueryProgram, QueryNodeId)> for PhraseView {
+impl TryFrom<(UserQueryProgram, QueryNodeId)> for PhraseView {
     type Error = ExtractionError;
 
-    fn try_from((program, id): (QueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
+    fn try_from((program, id): (UserQueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
         Self::try_from((&program, id))
     }
 }
@@ -319,12 +319,12 @@ pub struct BooleanView {
     pub children: Vec<QueryNodeId>,
 }
 
-impl TryFrom<(&QueryProgram, QueryNodeId)> for BooleanView {
+impl TryFrom<(&UserQueryProgram, QueryNodeId)> for BooleanView {
     type Error = ExtractionError;
 
-    fn try_from((program, id): (&QueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
+    fn try_from((program, id): (&UserQueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
         match program.get(id) {
-            Some(QueryNode::Boolean { op, children }) => Ok(BooleanView {
+            Some(UserQueryNode::Boolean { op, children }) => Ok(BooleanView {
                 op: *op,
                 children: children.clone(),
             }),
@@ -338,10 +338,10 @@ impl TryFrom<(&QueryProgram, QueryNodeId)> for BooleanView {
     }
 }
 
-impl TryFrom<(QueryProgram, QueryNodeId)> for BooleanView {
+impl TryFrom<(UserQueryProgram, QueryNodeId)> for BooleanView {
     type Error = ExtractionError;
 
-    fn try_from((program, id): (QueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
+    fn try_from((program, id): (UserQueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
         Self::try_from((&program, id))
     }
 }
@@ -355,12 +355,12 @@ pub struct BoostView {
     pub factor: f32,
 }
 
-impl TryFrom<(&QueryProgram, QueryNodeId)> for BoostView {
+impl TryFrom<(&UserQueryProgram, QueryNodeId)> for BoostView {
     type Error = ExtractionError;
 
-    fn try_from((program, id): (&QueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
+    fn try_from((program, id): (&UserQueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
         match program.get(id) {
-            Some(QueryNode::Boost { child, factor }) => Ok(BoostView {
+            Some(UserQueryNode::Boost { child, factor }) => Ok(BoostView {
                 child: *child,
                 factor: *factor,
             }),
@@ -374,44 +374,44 @@ impl TryFrom<(&QueryProgram, QueryNodeId)> for BoostView {
     }
 }
 
-impl TryFrom<(QueryProgram, QueryNodeId)> for BoostView {
+impl TryFrom<(UserQueryProgram, QueryNodeId)> for BoostView {
     type Error = ExtractionError;
 
-    fn try_from((program, id): (QueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
+    fn try_from((program, id): (UserQueryProgram, QueryNodeId)) -> Result<Self, Self::Error> {
         Self::try_from((&program, id))
     }
 }
 
-impl QueryNode {
+impl UserQueryNode {
     /// Get the type name of this node for error messages.
     pub(crate) const fn type_name(&self) -> &'static str {
         match self {
-            QueryNode::Term { .. } => "Term",
-            QueryNode::Phrase { .. } => "Phrase",
-            QueryNode::Boolean { .. } => "Boolean",
-            QueryNode::Boost { .. } => "Boost",
+            UserQueryNode::Term { .. } => "Term",
+            UserQueryNode::Phrase { .. } => "Phrase",
+            UserQueryNode::Boolean { .. } => "Boolean",
+            UserQueryNode::Boost { .. } => "Boost",
         }
     }
 }
 
 /// Execution-facing query program produced by the Phase 1 planner.
 #[derive(Clone, Debug, PartialEq)]
-pub struct PlannedQueryProgram {
-    nodes: Vec<PlannedQueryNode>,
+pub struct QueryProgram {
+    nodes: Vec<QueryNode>,
     root: QueryNodeId,
     max_depth: usize,
 }
 
-impl PlannedQueryProgram {
+impl QueryProgram {
     /// Create a new planned query program.
-    pub fn new(nodes: Vec<PlannedQueryNode>, root: QueryNodeId, max_depth: usize) -> Self {
+    pub fn new(nodes: Vec<QueryNode>, root: QueryNodeId, max_depth: usize) -> Self {
         Self::try_new(nodes, root, max_depth)
             .expect("planned query program contains invalid references")
     }
 
     /// Create a new planned query program, returning an error for invalid references.
     pub fn try_new(
-        nodes: Vec<PlannedQueryNode>,
+        nodes: Vec<QueryNode>,
         root: QueryNodeId,
         max_depth: usize,
     ) -> Result<Self, QueryError> {
@@ -440,13 +440,13 @@ impl PlannedQueryProgram {
     }
 
     /// Get a node by identifier.
-    pub fn get(&self, id: QueryNodeId) -> Option<&PlannedQueryNode> {
+    pub fn get(&self, id: QueryNodeId) -> Option<&QueryNode> {
         self.nodes.get(id.as_u32() as usize)
     }
 }
 
 fn validate_planned_program(
-    nodes: &[PlannedQueryNode],
+    nodes: &[QueryNode],
     root: QueryNodeId,
 ) -> Result<(), QueryError> {
     let contains = |id: QueryNodeId| (id.as_u32() as usize) < nodes.len();
@@ -460,7 +460,7 @@ fn validate_planned_program(
             u32::try_from(index).expect("planned query program exceeded u32 node IDs"),
         );
         match node {
-            PlannedQueryNode::And { children, .. } | PlannedQueryNode::Or { children, .. } => {
+            QueryNode::And { children, .. } | QueryNode::Or { children, .. } => {
                 for child in children {
                     if !contains(*child) {
                         return Err(QueryError::InvalidProgramReference {
@@ -470,7 +470,7 @@ fn validate_planned_program(
                     }
                 }
             }
-            PlannedQueryNode::Not { child } | PlannedQueryNode::ConstantScore { child, .. } => {
+            QueryNode::Not { child } | QueryNode::ConstantScore { child, .. } => {
                 if !contains(*child) {
                     return Err(QueryError::InvalidProgramReference {
                         parent,
@@ -478,7 +478,7 @@ fn validate_planned_program(
                     });
                 }
             }
-            PlannedQueryNode::Term { .. } => {}
+            QueryNode::Term { .. } => {}
         }
     }
 
@@ -498,7 +498,7 @@ fn validate_planned_program(
 
 fn visit_planned_program(
     node_id: QueryNodeId,
-    nodes: &[PlannedQueryNode],
+    nodes: &[QueryNode],
     states: &mut [Option<VisitState>],
 ) -> Result<(), QueryError> {
     let index = node_id.as_u32() as usize;
@@ -520,7 +520,7 @@ fn visit_planned_program(
 
 /// Execution-facing query node variants for Phase 1 planning.
 #[derive(Clone, Debug, PartialEq)]
-pub enum PlannedQueryNode {
+pub enum QueryNode {
     /// Resolved term lookup.
     Term {
         /// Canonical field identifier.
@@ -558,7 +558,7 @@ pub enum PlannedQueryNode {
     },
 }
 
-impl PlannedQueryNode {
+impl QueryNode {
     fn children(&self) -> &[QueryNodeId] {
         match self {
             Self::And { children, .. } | Self::Or { children, .. } => children,
@@ -782,7 +782,7 @@ impl FeatureSet {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionPlan {
     /// The planned query program.
-    pub program: PlannedQueryProgram,
+    pub program: QueryProgram,
     /// Estimated selectivity.
     pub selectivity: f32,
     /// Estimated cost.

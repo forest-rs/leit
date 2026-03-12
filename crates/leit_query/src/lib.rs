@@ -25,8 +25,8 @@ mod types;
 use types::QueryArena;
 pub use types::{
     BooleanOp, BooleanView, BoostView, ExecutionPlan, ExtractionError, FeatureSet, FieldRegistry,
-    PhraseView, PlannedQueryNode, PlannedQueryProgram, PlannerScratch, PlanningContext, QueryError,
-    QueryNode, QueryProgram, TermDictionary, TermView,
+    PhraseView, QueryNode, QueryProgram, PlannerScratch, PlanningContext, QueryError,
+    UserQueryNode, UserQueryProgram, TermDictionary, TermView,
 };
 
 // ============================================================================
@@ -55,7 +55,7 @@ impl QueryBuilder {
     }
 
     /// Build the query program from the tracked root node.
-    pub fn build(self) -> Option<QueryProgram> {
+    pub fn build(self) -> Option<UserQueryProgram> {
         if self.arena.is_empty() {
             return None;
         }
@@ -67,7 +67,7 @@ impl QueryBuilder {
                     .expect("query arena cannot be empty"),
             )
         });
-        QueryProgram::is_valid(&self.arena, root).then(|| QueryProgram::new(self.arena, root))
+        UserQueryProgram::is_valid(&self.arena, root).then(|| UserQueryProgram::new(self.arena, root))
     }
 
     /// Set the root node for the query program.
@@ -77,7 +77,7 @@ impl QueryBuilder {
 
     /// Add a term query.
     pub fn term<S: Into<Arc<str>>>(&mut self, term: S) -> QueryNodeId {
-        let id = self.arena.push(QueryNode::Term {
+        let id = self.arena.push(UserQueryNode::Term {
             term: term.into(),
             field: None,
         });
@@ -87,7 +87,7 @@ impl QueryBuilder {
 
     /// Add a term query with a field.
     pub fn term_with_field<S: Into<Arc<str>>>(&mut self, term: S, field: S) -> QueryNodeId {
-        let id = self.arena.push(QueryNode::Term {
+        let id = self.arena.push(UserQueryNode::Term {
             term: term.into(),
             field: Some(field.into()),
         });
@@ -97,21 +97,21 @@ impl QueryBuilder {
 
     /// Add a phrase query with initial terms.
     pub fn phrase(&mut self, terms: Vec<Arc<str>>) -> QueryNodeId {
-        let id = self.arena.push(QueryNode::Phrase { terms, slop: 0 });
+        let id = self.arena.push(UserQueryNode::Phrase { terms, slop: 0 });
         self.root = Some(id);
         id
     }
 
     /// Add a phrase query with terms and slop.
     pub fn phrase_with_slop(&mut self, terms: Vec<Arc<str>>, slop: u32) -> QueryNodeId {
-        let id = self.arena.push(QueryNode::Phrase { terms, slop });
+        let id = self.arena.push(UserQueryNode::Phrase { terms, slop });
         self.root = Some(id);
         id
     }
 
     /// Add a boolean AND query with initial children.
     pub fn and(&mut self, children: Vec<QueryNodeId>) -> QueryNodeId {
-        let id = self.arena.push(QueryNode::Boolean {
+        let id = self.arena.push(UserQueryNode::Boolean {
             op: BooleanOp::And,
             children,
         });
@@ -121,7 +121,7 @@ impl QueryBuilder {
 
     /// Add a boolean OR query with initial children.
     pub fn or(&mut self, children: Vec<QueryNodeId>) -> QueryNodeId {
-        let id = self.arena.push(QueryNode::Boolean {
+        let id = self.arena.push(UserQueryNode::Boolean {
             op: BooleanOp::Or,
             children,
         });
@@ -131,7 +131,7 @@ impl QueryBuilder {
 
     /// Add a boolean NOT query with child.
     pub fn not(&mut self, child: QueryNodeId) -> QueryNodeId {
-        let id = self.arena.push(QueryNode::Boolean {
+        let id = self.arena.push(UserQueryNode::Boolean {
             op: BooleanOp::Not,
             children: vec![child],
         });
@@ -141,7 +141,7 @@ impl QueryBuilder {
 
     /// Add a boost query.
     pub fn boost(&mut self, child: QueryNodeId, factor: f32) -> QueryNodeId {
-        let id = self.arena.push(QueryNode::Boost { child, factor });
+        let id = self.arena.push(UserQueryNode::Boost { child, factor });
         self.root = Some(id);
         id
     }
@@ -152,14 +152,14 @@ impl QueryBuilder {
 // ============================================================================
 
 /// Create a term query in one call.
-pub fn term<S: Into<Arc<str>>>(term: S) -> QueryProgram {
+pub fn term<S: Into<Arc<str>>>(term: S) -> UserQueryProgram {
     let mut builder = QueryBuilder::new();
     builder.term(term);
     builder.build().expect("term should create valid program")
 }
 
 /// Create a term query with a field in one call.
-pub fn term_with_field<S: Into<Arc<str>>>(term: S, field: S) -> QueryProgram {
+pub fn term_with_field<S: Into<Arc<str>>>(term: S, field: S) -> UserQueryProgram {
     let mut builder = QueryBuilder::new();
     builder.term_with_field(term, field);
     builder
@@ -168,7 +168,7 @@ pub fn term_with_field<S: Into<Arc<str>>>(term: S, field: S) -> QueryProgram {
 }
 
 /// Create a phrase query in one call.
-pub fn phrase(terms: &[&str]) -> QueryProgram {
+pub fn phrase(terms: &[&str]) -> UserQueryProgram {
     let mut builder = QueryBuilder::new();
     let terms: Vec<Arc<str>> = terms.iter().map(|t| (*t).into()).collect();
     builder.phrase(terms);
@@ -176,7 +176,7 @@ pub fn phrase(terms: &[&str]) -> QueryProgram {
 }
 
 /// Create a phrase query with slop in one call.
-pub fn phrase_with_slop(terms: &[&str], slop: u32) -> QueryProgram {
+pub fn phrase_with_slop(terms: &[&str], slop: u32) -> UserQueryProgram {
     let mut builder = QueryBuilder::new();
     let terms: Vec<Arc<str>> = terms.iter().map(|t| (*t).into()).collect();
     builder.phrase_with_slop(terms, slop);
@@ -251,7 +251,7 @@ impl Planner {
         };
 
         Ok(ExecutionPlan {
-            program: PlannedQueryProgram::try_new(nodes, root, depth)?,
+            program: QueryProgram::try_new(nodes, root, depth)?,
             selectivity,
             cost: u32::try_from(node_count).expect("planner node count exceeded u32 cost"),
             required_features: FeatureSet::basic(),
@@ -363,7 +363,7 @@ fn parse_phase1_query(query: &str) -> Result<Phase1Expr, QueryError> {
 fn lower_phase1_expr(
     expr: &Phase1Expr,
     context: &PlanningContext<'_>,
-    nodes: &mut Vec<PlannedQueryNode>,
+    nodes: &mut Vec<QueryNode>,
     max_nodes: usize,
 ) -> Result<QueryNodeId, QueryError> {
     if nodes.len() >= max_nodes {
@@ -393,7 +393,7 @@ fn lower_phase1_expr(
                     term: term.clone(),
                 })?;
 
-            PlannedQueryNode::Term {
+            QueryNode::Term {
                 field: field_id,
                 term: term_id,
                 boost: *boost * context.default_boost,
@@ -404,7 +404,7 @@ fn lower_phase1_expr(
             for child in children {
                 child_ids.push(lower_phase1_expr(child, context, nodes, max_nodes)?);
             }
-            PlannedQueryNode::And {
+            QueryNode::And {
                 children: child_ids,
                 boost: 1.0,
             }
@@ -414,12 +414,12 @@ fn lower_phase1_expr(
             for child in children {
                 child_ids.push(lower_phase1_expr(child, context, nodes, max_nodes)?);
             }
-            PlannedQueryNode::Or {
+            QueryNode::Or {
                 children: child_ids,
                 boost: 1.0,
             }
         }
-        Phase1Expr::Not(child) => PlannedQueryNode::Not {
+        Phase1Expr::Not(child) => QueryNode::Not {
             child: lower_phase1_expr(child, context, nodes, max_nodes)?,
         },
     };
@@ -885,11 +885,11 @@ mod tests {
     #[test]
     fn test_walk_skips_missing_child_nodes() {
         let mut arena = QueryArena::default();
-        let root = arena.push(QueryNode::Boolean {
+        let root = arena.push(UserQueryNode::Boolean {
             op: BooleanOp::Or,
             children: vec![QueryNodeId::new(7)],
         });
-        let program = QueryProgram::new(arena, root);
+        let program = UserQueryProgram::new(arena, root);
 
         let nodes: Vec<QueryNodeId> = program.walk().collect();
 

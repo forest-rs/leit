@@ -1,7 +1,7 @@
 //! Property-based invariant tests for `leit_query`.
 
 use leit_core::{FieldId, QueryNodeId, TermId};
-use leit_query::{PlannedQueryNode, PlannedQueryProgram, QueryBuilder, QueryError};
+use leit_query::{QueryNode, QueryProgram, QueryBuilder, QueryError};
 use proptest::collection::vec;
 use proptest::prelude::*;
 
@@ -59,18 +59,18 @@ proptest! {
     #[test]
     fn planned_program_rejects_invalid_references(invalid_child in 2u32..1_000u32) {
         let nodes = vec![
-            PlannedQueryNode::Term {
+            QueryNode::Term {
                 field: FieldId::new(0),
                 term: TermId::new(0),
                 boost: 1.0,
             },
-            PlannedQueryNode::And {
+            QueryNode::And {
                 children: vec![QueryNodeId::new(invalid_child)],
                 boost: 1.0,
             },
         ];
 
-        let error = PlannedQueryProgram::try_new(nodes, QueryNodeId::new(1), 2)
+        let error = QueryProgram::try_new(nodes, QueryNodeId::new(1), 2)
             .expect_err("invalid child references must fail");
 
         let is_invalid_reference = matches!(error, QueryError::InvalidProgramReference { .. });
@@ -80,12 +80,12 @@ proptest! {
 
 #[test]
 fn planned_program_rejects_self_cycles() {
-    let nodes = vec![PlannedQueryNode::And {
+    let nodes = vec![QueryNode::And {
         children: vec![QueryNodeId::new(0)],
         boost: 1.0,
     }];
 
-    let error = PlannedQueryProgram::try_new(nodes, QueryNodeId::new(0), 1)
+    let error = QueryProgram::try_new(nodes, QueryNodeId::new(0), 1)
         .expect_err("self-referential planned programs must fail");
 
     assert!(matches!(error, QueryError::InvalidProgramCycle { .. }));
@@ -94,17 +94,17 @@ fn planned_program_rejects_self_cycles() {
 #[test]
 fn planned_program_rejects_mutual_cycles() {
     let nodes = vec![
-        PlannedQueryNode::Or {
+        QueryNode::Or {
             children: vec![QueryNodeId::new(1)],
             boost: 1.0,
         },
-        PlannedQueryNode::And {
+        QueryNode::And {
             children: vec![QueryNodeId::new(0)],
             boost: 1.0,
         },
     ];
 
-    let error = PlannedQueryProgram::try_new(nodes, QueryNodeId::new(0), 2)
+    let error = QueryProgram::try_new(nodes, QueryNodeId::new(0), 2)
         .expect_err("cyclic planned programs must fail");
 
     assert!(matches!(error, QueryError::InvalidProgramCycle { .. }));
@@ -113,19 +113,19 @@ fn planned_program_rejects_mutual_cycles() {
 #[test]
 fn planned_program_rejects_unreachable_nodes() {
     let nodes = vec![
-        PlannedQueryNode::Term {
+        QueryNode::Term {
             field: FieldId::new(0),
             term: TermId::new(0),
             boost: 1.0,
         },
-        PlannedQueryNode::Term {
+        QueryNode::Term {
             field: FieldId::new(0),
             term: TermId::new(1),
             boost: 1.0,
         },
     ];
 
-    let error = PlannedQueryProgram::try_new(nodes, QueryNodeId::new(0), 1)
+    let error = QueryProgram::try_new(nodes, QueryNodeId::new(0), 1)
         .expect_err("unreachable planned nodes must fail");
 
     assert!(matches!(error, QueryError::UnreachableProgramNode { .. }));
