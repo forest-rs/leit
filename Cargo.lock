@@ -349,6 +349,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "leit_benchmark"
+version = "0.1.0"
+dependencies = [
+ "leit_core",
+ "leit_index",
+ "leit_text",
+]
+
+[[package]]
 name = "leit_collect"
 version = "0.1.0"
 dependencies = [

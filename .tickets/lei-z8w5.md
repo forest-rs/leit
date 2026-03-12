@@ -16,3 +16,9 @@ Create a real benchmark/wind-tunnel style crate for the current in-memory Phase 
 
 A benchmark crate exists in the workspace and builds.\nIt runs at least one deterministic indexing/query workload over the current stack.\nDocs explain how to run it and keep benchmark concerns out of kernel crates.
 
+
+## Notes
+
+**2026-03-12T04:16:56Z**
+
+Added a dedicated leit_benchmark workspace crate with one deterministic Phase 1 smoke scenario, a binary entry point, and stable result-shape tests. Verified with cargo test -p leit_benchmark, cargo run -p leit_benchmark, and cargo clippy -p leit_benchmark --all-targets -- -D warnings.

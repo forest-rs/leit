@@ -1,0 +1,19 @@
+[package]
+name = "leit_benchmark"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Phase 1 wind-tunnel benchmark harness for Leit"
+publish = false
+
+[dependencies]
+leit_core.workspace = true
+leit_index.workspace = true
+leit_text.workspace = true
+
+[lints]
+workspace = true

@@ -8,6 +8,7 @@ members = [
     "crates/leit_fusion",
     "crates/leit_collect",
     "crates/leit_index",
+    "crates/leit_benchmark",
     "crates/leit-integration-tests",
 ]
 resolver = "2"
@@ -35,6 +36,7 @@ leit_postings = { path = "crates/leit_postings" }
 leit_fusion = { path = "crates/leit_fusion" }
 leit_collect = { path = "crates/leit_collect" }
 leit_index = { path = "crates/leit_index" }
+leit_benchmark = { path = "crates/leit_benchmark" }
 leit-integration-tests = { path = "crates/leit-integration-tests" }
 
 # External dependencies - shared versions across workspace
