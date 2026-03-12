@@ -20,6 +20,7 @@ mod segment;
 
 pub use error::{IndexError, SegmentError};
 pub use memory::{
-    ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, IndexBuilder, SearchScorer,
+    ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, IndexBuilder,
+    SearchScorer,
 };
 pub use segment::{SectionKind, SegmentView};

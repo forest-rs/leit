@@ -1,7 +1,7 @@
 //! Result collection for Leit retrieval system.
 //!
 //! This crate provides collectors for gathering search results,
-//! including top-k collection with early termination support.
+//! including top-k collection with threshold reporting for pruning-aware executors.
 
 #![no_std]
 
@@ -30,8 +30,11 @@ pub trait Collector<Id: EntityId> {
 
     /// Return the current competitive threshold for this query, if any.
     ///
-    /// Execution may skip a candidate whose maximum possible score is less than
-    /// or equal to this value.
+    /// Execution may skip a candidate or block when it has an exact score or a
+    /// sound upper bound that is strictly less than this value.
+    ///
+    /// Equal scores remain competitive because collectors may apply an
+    /// additional deterministic tie-break after comparing scores.
     fn threshold(&self) -> Option<Score>;
 
     /// Finalize the current query and return its output.
@@ -40,10 +43,9 @@ pub trait Collector<Id: EntityId> {
     /// Number of hits collected.
     fn len(&self) -> usize;
 
-    /// Check if a score can be skipped (for WAND optimization).
-    /// Returns true if a hit with this score would not make it into the top-k.
+    /// Check if a candidate with this exact score can be skipped.
     fn can_skip(&self, score: Score) -> bool {
-        self.threshold().is_some_and(|threshold| score <= threshold)
+        self.threshold().is_some_and(|threshold| score < threshold)
     }
 
     /// Check if no hits have been collected.
@@ -59,7 +61,7 @@ pub trait Collector<Id: EntityId> {
 /// A collector that maintains the top-k hits by score.
 ///
 /// Uses a min-heap internally, so the smallest score is at the top.
-/// This allows efficient early termination checks.
+/// This allows efficient threshold maintenance for pruning-aware executors.
 #[derive(Debug)]
 pub struct TopKCollector<Id: EntityId> {
     heap: BinaryHeap<ReverseHit<Id>>,
@@ -252,7 +254,7 @@ mod tests {
 
         // Now full, min score is 0.5
         assert!(collector.can_skip(Score::new(0.3)));
-        assert!(collector.can_skip(Score::new(0.5)));
+        assert!(!collector.can_skip(Score::new(0.5)));
         assert!(!collector.can_skip(Score::new(0.6)));
     }
 

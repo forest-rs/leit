@@ -16,6 +16,7 @@ use crate::codec::encode_segment;
 use crate::error::IndexError;
 
 const SEARCH_MISSING_TERM_ID: TermId = TermId::new(u32::MAX);
+const DEFAULT_POSTINGS_BLOCK_SIZE: usize = 2;
 
 /// Build-time contract for index construction.
 pub trait IndexBuilder {
@@ -52,6 +53,15 @@ pub(crate) struct FieldMetadata {
     pub(crate) total_terms: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PostingBlock {
+    start: usize,
+    end: usize,
+    end_doc: u32,
+    max_term_freq: u32,
+    min_doc_length: u32,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct EvalResult {
     matches: BTreeSet<u32>,
@@ -84,6 +94,19 @@ struct BuildState {
     next_term_id: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct BlockConfig {
+    postings_block_size: usize,
+}
+
+impl Default for BlockConfig {
+    fn default() -> Self {
+        Self {
+            postings_block_size: DEFAULT_POSTINGS_BLOCK_SIZE,
+        }
+    }
+}
+
 impl BuildState {
     const fn new() -> Self {
         Self {
@@ -112,6 +135,19 @@ const fn u32_to_f32(value: u32) -> f32 {
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionWorkspace {
     planner: PlannerScratch,
+    last_stats: ExecutionStats,
+}
+
+/// Observability counters for one query execution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ExecutionStats {
+    /// Number of postings individually scored during execution.
+    pub scored_postings: usize,
+    /// Number of postings blocks skipped by threshold pruning on the current
+    /// direct root-term execution path.
+    pub skipped_blocks: usize,
+    /// Number of hits submitted to the collector.
+    pub collected_hits: usize,
 }
 
 /// Explicit scorer selection for Phase 1 search execution.
@@ -153,6 +189,15 @@ impl ExecutionWorkspace {
         Self::default()
     }
 
+    /// Return stats for the most recent execution.
+    ///
+    /// `skipped_blocks` is currently populated only by the direct root-term
+    /// execution path.
+    #[must_use]
+    pub const fn last_stats(&self) -> ExecutionStats {
+        self.last_stats
+    }
+
     /// Plan a textual query for this index using reusable scratch state.
     pub fn plan(
         &mut self,
@@ -177,9 +222,12 @@ impl ExecutionWorkspace {
         scorer: SearchScorer,
         collector: &mut C,
     ) -> Result<C::Output, IndexError> {
+        self.last_stats = ExecutionStats::default();
         collector.begin_query();
-        let result = index.evaluate_plan(plan, scorer)?;
-        InMemoryIndex::collect_result(result, collector);
+        if !index.try_execute_root(plan, scorer, collector, &mut self.last_stats)? {
+            let result = index.evaluate_plan(plan, scorer, &mut self.last_stats)?;
+            InMemoryIndex::collect_result(result, collector, &mut self.last_stats);
+        }
         Ok(collector.finish())
     }
 
@@ -200,6 +248,7 @@ impl ExecutionWorkspace {
 impl ScratchSpace for ExecutionWorkspace {
     fn clear(&mut self) {
         self.planner.reset();
+        self.last_stats = ExecutionStats::default();
     }
 }
 
@@ -207,6 +256,7 @@ impl ScratchSpace for ExecutionWorkspace {
 #[derive(Debug)]
 pub struct InMemoryIndexBuilder {
     analyzers: FieldAnalyzers,
+    block_config: BlockConfig,
     state: BuildState,
 }
 
@@ -215,6 +265,9 @@ impl InMemoryIndexBuilder {
     pub const fn new(analyzers: FieldAnalyzers) -> Self {
         Self {
             analyzers,
+            block_config: BlockConfig {
+                postings_block_size: DEFAULT_POSTINGS_BLOCK_SIZE,
+            },
             state: BuildState::new(),
         }
     }
@@ -342,12 +395,19 @@ impl IndexBuilder for InMemoryIndexBuilder {
     }
 
     fn finish(self) -> Self::Output {
+        let posting_blocks = build_posting_blocks(
+            &self.state.term_entries,
+            &self.state.postings,
+            &self.state.field_doc_lengths,
+            self.block_config.postings_block_size,
+        );
         InMemoryIndex {
             analyzers: self.analyzers,
             documents: self.state.documents,
             terms_to_ids: self.state.terms_to_ids,
             term_entries: self.state.term_entries,
             postings: self.state.postings,
+            posting_blocks,
             field_stats: self.state.field_stats,
             field_names: self.state.field_names,
             field_doc_lengths: self.state.field_doc_lengths,
@@ -363,6 +423,7 @@ pub struct InMemoryIndex {
     terms_to_ids: BTreeMap<(FieldId, String), TermId>,
     term_entries: Vec<TermEntry>,
     postings: BTreeMap<TermId, Vec<PostingEntry>>,
+    posting_blocks: BTreeMap<TermId, Vec<PostingBlock>>,
     field_stats: BTreeMap<FieldId, FieldMetadata>,
     field_names: BTreeMap<String, FieldId>,
     field_doc_lengths: BTreeMap<(u32, FieldId), u32>,
@@ -413,8 +474,9 @@ impl InMemoryIndex {
         &self,
         plan: &ExecutionPlan,
         scorer: SearchScorer,
+        stats: &mut ExecutionStats,
     ) -> Result<EvalResult, IndexError> {
-        self.evaluate_node(plan.program.root(), &plan.program, scorer)
+        self.evaluate_node(plan.program.root(), &plan.program, scorer, stats)
     }
 
     fn evaluate_node(
@@ -422,6 +484,7 @@ impl InMemoryIndex {
         node_id: QueryNodeId,
         program: &QueryProgram,
         scoring: SearchScorer,
+        stats: &mut ExecutionStats,
     ) -> Result<EvalResult, IndexError> {
         let Some(node) = program.get(node_id) else {
             return Ok(EvalResult::default());
@@ -429,13 +492,13 @@ impl InMemoryIndex {
 
         match node {
             QueryNode::Term { field, term, boost } => {
-                Ok(self.eval_term(*field, *term, *boost, scoring))
+                Ok(self.eval_term(*field, *term, *boost, scoring, stats))
             }
             QueryNode::Or { children, boost } => {
                 let mut matches = BTreeSet::new();
                 let mut results = BTreeMap::new();
                 for child in children {
-                    let child_result = self.evaluate_node(*child, program, scoring)?;
+                    let child_result = self.evaluate_node(*child, program, scoring, stats)?;
                     matches.extend(child_result.matches);
                     for (doc_id, score) in child_result.scores {
                         let entry = results.entry(doc_id).or_insert(Score::ZERO);
@@ -457,12 +520,12 @@ impl InMemoryIndex {
                 let Some(first) = iter.next() else {
                     return Ok(EvalResult::default());
                 };
-                let first_result = self.evaluate_node(*first, program, scoring)?;
+                let first_result = self.evaluate_node(*first, program, scoring, stats)?;
                 let mut matches = first_result.matches.clone();
                 let mut child_results = Vec::new();
                 child_results.push(first_result);
                 for child in iter {
-                    let child_result = self.evaluate_node(*child, program, scoring)?;
+                    let child_result = self.evaluate_node(*child, program, scoring, stats)?;
                     matches.retain(|doc_id| child_result.matches.contains(doc_id));
                     child_results.push(child_result);
                 }
@@ -486,7 +549,7 @@ impl InMemoryIndex {
                 })
             }
             QueryNode::Not { child } => {
-                let child_matches = self.evaluate_node(*child, program, scoring)?.matches;
+                let child_matches = self.evaluate_node(*child, program, scoring, stats)?.matches;
                 let mut matches = BTreeSet::new();
                 for doc_id in &self.documents {
                     if !child_matches.contains(doc_id) {
@@ -496,7 +559,7 @@ impl InMemoryIndex {
                 Ok(EvalResult::from_matches(matches))
             }
             QueryNode::ConstantScore { child, score } => {
-                let mut result = self.evaluate_node(*child, program, scoring)?;
+                let mut result = self.evaluate_node(*child, program, scoring, stats)?;
                 result.scores.clear();
                 for doc_id in &result.matches {
                     result.scores.insert(*doc_id, Score::new(*score));
@@ -512,6 +575,7 @@ impl InMemoryIndex {
         term: TermId,
         boost: f32,
         scoring: SearchScorer,
+        stats: &mut ExecutionStats,
     ) -> EvalResult {
         let mut results = BTreeMap::new();
         let Some(postings) = self.postings.get(&term) else {
@@ -526,6 +590,7 @@ impl InMemoryIndex {
         let doc_frequency = u32::try_from(postings.len()).unwrap_or(u32::MAX);
 
         for posting in postings {
+            stats.scored_postings = stats.scored_postings.saturating_add(1);
             let doc_length = self
                 .field_doc_lengths
                 .get(&(posting.doc_id, field))
@@ -547,15 +612,185 @@ impl InMemoryIndex {
         EvalResult::from_scores(results)
     }
 
-    fn collect_result<C: Collector<u32>>(result: EvalResult, collector: &mut C) {
+    fn collect_result<C: Collector<u32>>(
+        result: EvalResult,
+        collector: &mut C,
+        stats: &mut ExecutionStats,
+    ) {
         for doc_id in result.matches {
             let score = result.scores.get(&doc_id).copied().unwrap_or(Score::ZERO);
             if collector.can_skip(score) {
                 continue;
             }
             collector.collect(ScoredHit::new(doc_id, score));
+            stats.collected_hits = stats.collected_hits.saturating_add(1);
         }
     }
+
+    fn try_execute_root<C: Collector<u32>>(
+        &self,
+        plan: &ExecutionPlan,
+        scoring: SearchScorer,
+        collector: &mut C,
+        stats: &mut ExecutionStats,
+    ) -> Result<bool, IndexError> {
+        let Some(node) = plan.program.get(plan.program.root()) else {
+            return Ok(true);
+        };
+        match node {
+            QueryNode::Term { field, term, boost } => {
+                self.collect_term(*field, *term, *boost, scoring, collector, stats);
+                Ok(true)
+            }
+            QueryNode::ConstantScore { child, score } => {
+                let mut result = self.evaluate_node(*child, &plan.program, scoring, stats)?;
+                result.scores.clear();
+                let score = Score::new(*score);
+                if collector.can_skip(score) {
+                    return Ok(true);
+                }
+                for doc_id in result.matches {
+                    collector.collect(ScoredHit::new(doc_id, score));
+                    stats.collected_hits = stats.collected_hits.saturating_add(1);
+                }
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn collect_term<C: Collector<u32>>(
+        &self,
+        field: FieldId,
+        term: TermId,
+        boost: f32,
+        scoring: SearchScorer,
+        collector: &mut C,
+        stats: &mut ExecutionStats,
+    ) {
+        let Some(postings) = self.postings.get(&term) else {
+            return;
+        };
+        let Some(blocks) = self.posting_blocks.get(&term) else {
+            return;
+        };
+
+        let avg_doc_length = self.avg_field_doc_length(field);
+        let doc_count = self
+            .field_stats
+            .get(&field)
+            .map_or(0, |field_stats| field_stats.doc_count);
+        let doc_frequency = u32::try_from(postings.len()).unwrap_or(u32::MAX);
+
+        for block in blocks {
+            if let Some(threshold) = collector.threshold() {
+                let bound = Self::block_upper_bound(
+                    *block,
+                    boost,
+                    scoring,
+                    avg_doc_length,
+                    doc_count,
+                    doc_frequency,
+                );
+                if bound <= threshold {
+                    stats.skipped_blocks = stats.skipped_blocks.saturating_add(1);
+                    continue;
+                }
+            }
+
+            for posting in &postings[block.start..block.end] {
+                stats.scored_postings = stats.scored_postings.saturating_add(1);
+                let doc_length = self
+                    .field_doc_lengths
+                    .get(&(posting.doc_id, field))
+                    .copied()
+                    .unwrap_or_default();
+                let mut score = scoring.score_term(
+                    posting.term_freq,
+                    doc_length,
+                    avg_doc_length,
+                    doc_count,
+                    doc_frequency,
+                );
+                if is_non_unit_boost(boost) {
+                    MulAssign::mul_assign(&mut score, boost);
+                }
+                if collector.can_skip(score) {
+                    continue;
+                }
+                collector.collect(ScoredHit::new(posting.doc_id, score));
+                stats.collected_hits = stats.collected_hits.saturating_add(1);
+            }
+        }
+    }
+
+    fn block_upper_bound(
+        block: PostingBlock,
+        boost: f32,
+        scoring: SearchScorer,
+        avg_doc_length: f32,
+        doc_count: u32,
+        doc_frequency: u32,
+    ) -> Score {
+        let mut bound = scoring.score_term(
+            block.max_term_freq,
+            block.min_doc_length,
+            avg_doc_length,
+            doc_count,
+            doc_frequency,
+        );
+        if is_non_unit_boost(boost) {
+            MulAssign::mul_assign(&mut bound, boost);
+        }
+        bound
+    }
+}
+
+fn build_posting_blocks(
+    term_entries: &[TermEntry],
+    postings: &BTreeMap<TermId, Vec<PostingEntry>>,
+    field_doc_lengths: &BTreeMap<(u32, FieldId), u32>,
+    postings_block_size: usize,
+) -> BTreeMap<TermId, Vec<PostingBlock>> {
+    let mut blocks = BTreeMap::new();
+    let block_size = postings_block_size.max(1);
+    for (&term_id, term_postings) in postings {
+        let field = term_entries
+            .get(term_id.as_u32() as usize)
+            .map_or(FieldId::new(0), |entry| entry.field_id);
+        let mut term_blocks = Vec::new();
+        let mut start = 0;
+        while start < term_postings.len() {
+            let end = core::cmp::min(start.saturating_add(block_size), term_postings.len());
+            let mut end_doc = term_postings[start].doc_id;
+            let mut max_term_freq = 0;
+            let mut min_doc_length = u32::MAX;
+            for posting in &term_postings[start..end] {
+                end_doc = posting.doc_id;
+                max_term_freq = max_term_freq.max(posting.term_freq);
+                min_doc_length = min_doc_length.min(
+                    field_doc_lengths
+                        .get(&(posting.doc_id, field))
+                        .copied()
+                        .unwrap_or_default(),
+                );
+            }
+            term_blocks.push(PostingBlock {
+                start,
+                end,
+                end_doc,
+                max_term_freq,
+                min_doc_length: if min_doc_length == u32::MAX {
+                    0
+                } else {
+                    min_doc_length
+                },
+            });
+            start = end;
+        }
+        blocks.insert(term_id, term_blocks);
+    }
+    blocks
 }
 
 struct SearchDictionary<'a> {
@@ -595,5 +830,60 @@ impl TermDictionary for InMemoryIndex {
         }
         let normalized = analyzed_tokens[0].1.as_str();
         self.terms_to_ids.get(&(field, normalized.into())).copied()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn posting_blocks_respect_configured_block_size() {
+        let term_id = TermId::new(0);
+        let term_entries = vec![TermEntry {
+            field_id: FieldId::new(1),
+            term_id,
+            term: String::from("alpha"),
+        }];
+        let postings = BTreeMap::from([(
+            term_id,
+            vec![
+                PostingEntry {
+                    doc_id: 1,
+                    term_freq: 3,
+                },
+                PostingEntry {
+                    doc_id: 2,
+                    term_freq: 2,
+                },
+                PostingEntry {
+                    doc_id: 3,
+                    term_freq: 1,
+                },
+            ],
+        )]);
+        let field_doc_lengths = BTreeMap::from([
+            ((1, FieldId::new(1)), 5),
+            ((2, FieldId::new(1)), 7),
+            ((3, FieldId::new(1)), 9),
+        ]);
+
+        let singleton_blocks =
+            build_posting_blocks(&term_entries, &postings, &field_doc_lengths, 1);
+        let pair_blocks = build_posting_blocks(&term_entries, &postings, &field_doc_lengths, 2);
+
+        assert_eq!(singleton_blocks[&term_id].len(), 3);
+        assert_eq!(pair_blocks[&term_id].len(), 2);
+        assert_eq!(
+            pair_blocks[&term_id][0],
+            PostingBlock {
+                start: 0,
+                end: 2,
+                end_doc: 2,
+                max_term_freq: 3,
+                min_doc_length: 5,
+            }
+        );
     }
 }

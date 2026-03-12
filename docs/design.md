@@ -150,7 +150,9 @@ That distinction should remain true as Leit grows:
 ### Collection and fusion
 
 `leit_collect` owns result collection. `TopKCollector` exposes a minimum-score
-boundary so execution can skip work that cannot change the final top-k.
+boundary so pruning-aware execution paths can skip exact-score candidates or
+bounded blocks that cannot change the final top-k. In the current Phase 1
+implementation, block pruning is only wired into the direct root-term path.
 
 `leit_fusion` implements Reciprocal Rank Fusion with deterministic ordering.
 

@@ -3,7 +3,9 @@
 use std::collections::BTreeSet;
 
 use leit_core::FieldId;
-use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer};
+use leit_index::{
+    ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer,
+};
 use leit_query::{Planner, PlannerScratch, PlanningContext, QueryError};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
@@ -33,6 +35,16 @@ fn search(
 ) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
     workspace.search(index, query, limit, SearchScorer::bm25())
+}
+
+fn search_with_stats(
+    index: &InMemoryIndex,
+    query: &str,
+    limit: usize,
+) -> Result<(Vec<leit_core::ScoredHit<u32>>, ExecutionStats), leit_index::IndexError> {
+    let mut workspace = ExecutionWorkspace::new();
+    let hits = workspace.search(index, query, limit, SearchScorer::bm25())?;
+    Ok((hits, workspace.last_stats()))
 }
 
 #[test]
@@ -237,6 +249,61 @@ fn field_qualified_terms_use_field_local_bm25_stats() {
 
     assert_eq!(title_hits.len(), 2);
     assert_eq!(title_hits[0].score, title_hits[1].score);
+}
+
+#[test]
+fn term_search_skips_noncompetitive_blocks_once_threshold_rises() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha alpha alpha alpha")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), "alpha alpha alpha")])
+        .expect("document should index");
+    builder
+        .index_document(
+            3,
+            &[(
+                FieldId::new(1),
+                "alpha noise noise noise noise noise noise noise noise noise",
+            )],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            4,
+            &[(
+                FieldId::new(1),
+                "alpha noise noise noise noise noise noise noise noise noise noise noise",
+            )],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let (hits, stats) = search_with_stats(&index, "alpha", 1).expect("search should succeed");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, 1);
+    assert!(stats.scored_postings < 4);
+    assert!(stats.skipped_blocks > 0);
+}
+
+#[test]
+fn term_search_keeps_later_equal_score_tie_break_winner() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha")])
+        .expect("document should index");
+    builder
+        .index_document(10, &[(FieldId::new(1), "alpha")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let (hits, stats) = search_with_stats(&index, "alpha", 1).expect("search should succeed");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, 10);
+    assert_eq!(stats.skipped_blocks, 0);
 }
 
 #[test]

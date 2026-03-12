@@ -2,8 +2,10 @@
 
 use std::collections::BTreeSet;
 
+use leit_collect::TopKCollector;
 use leit_core::FieldId;
 use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer};
+use leit_query::{ExecutionPlan, FeatureSet, QueryNode, QueryProgram, TermDictionary};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -92,6 +94,18 @@ fn build_mixed_scope_index(corpus: &[(bool, bool)]) -> InMemoryIndex {
     builder.build_index()
 }
 
+fn execute_plan(
+    index: &InMemoryIndex,
+    plan: &ExecutionPlan,
+    limit: usize,
+) -> Vec<leit_core::ScoredHit<u32>> {
+    let mut workspace = ExecutionWorkspace::new();
+    let mut collector = TopKCollector::new(limit);
+    workspace
+        .execute(index, plan, SearchScorer::bm25(), &mut collector)
+        .expect("plan should execute")
+}
+
 #[test]
 fn and_not_filters_without_adding_score() {
     let mut builder = InMemoryIndexBuilder::new(test_analyzers());
@@ -156,6 +170,128 @@ fn bare_not_returns_neutral_scores() {
         BTreeSet::from([1, 3])
     );
     assert!(hits.iter().all(|hit| hit.score == leit_core::Score::ZERO));
+}
+
+#[test]
+fn constant_score_wraps_filter_only_not_query() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), "beta")])
+        .expect("document should index");
+    builder
+        .index_document(3, &[(FieldId::new(1), "gamma")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let program = QueryProgram::new(
+        vec![
+            QueryNode::Term {
+                field: FieldId::new(1),
+                term: index
+                    .resolve_term(FieldId::new(1), "beta")
+                    .expect("beta should resolve"),
+                boost: 1.0,
+            },
+            QueryNode::Not {
+                child: leit_core::QueryNodeId::new(0),
+            },
+            QueryNode::ConstantScore {
+                child: leit_core::QueryNodeId::new(1),
+                score: 7.5,
+            },
+        ],
+        leit_core::QueryNodeId::new(2),
+        3,
+    );
+    let plan = ExecutionPlan {
+        program,
+        selectivity: 1.0,
+        cost: 1,
+        required_features: FeatureSet::basic(),
+    };
+
+    let hits = execute_plan(&index, &plan, 10);
+
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].score, leit_core::Score::new(7.5));
+    assert_eq!(hits[1].score, leit_core::Score::new(7.5));
+    assert_eq!(
+        hits.iter().map(|hit| hit.id).collect::<BTreeSet<_>>(),
+        BTreeSet::from([1, 3])
+    );
+}
+
+#[test]
+fn constant_score_wraps_mixed_scoring_and_filter_matches() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), "alpha beta")])
+        .expect("document should index");
+    builder
+        .index_document(3, &[(FieldId::new(1), "gamma")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let alpha = index
+        .resolve_term(FieldId::new(1), "alpha")
+        .expect("alpha should resolve");
+    let beta = index
+        .resolve_term(FieldId::new(1), "beta")
+        .expect("beta should resolve");
+    let program = QueryProgram::new(
+        vec![
+            QueryNode::Term {
+                field: FieldId::new(1),
+                term: alpha,
+                boost: 1.0,
+            },
+            QueryNode::Term {
+                field: FieldId::new(1),
+                term: beta,
+                boost: 1.0,
+            },
+            QueryNode::Not {
+                child: leit_core::QueryNodeId::new(1),
+            },
+            QueryNode::Or {
+                children: vec![
+                    leit_core::QueryNodeId::new(0),
+                    leit_core::QueryNodeId::new(2),
+                ],
+                boost: 1.0,
+            },
+            QueryNode::ConstantScore {
+                child: leit_core::QueryNodeId::new(3),
+                score: 2.25,
+            },
+        ],
+        leit_core::QueryNodeId::new(4),
+        3,
+    );
+    let plan = ExecutionPlan {
+        program,
+        selectivity: 1.0,
+        cost: 1,
+        required_features: FeatureSet::basic(),
+    };
+
+    let hits = execute_plan(&index, &plan, 10);
+
+    assert_eq!(hits.len(), 3);
+    assert!(
+        hits.iter()
+            .all(|hit| hit.score == leit_core::Score::new(2.25))
+    );
+    assert_eq!(
+        hits.iter().map(|hit| hit.id).collect::<BTreeSet<_>>(),
+        BTreeSet::from([1, 2, 3])
+    );
 }
 
 proptest! {

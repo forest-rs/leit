@@ -1,15 +1,15 @@
 [workspace]
 members = [
-    "crates/leit_core",
-    "crates/leit_score",
-    "crates/leit_query",
-    "crates/leit_text",
-    "crates/leit_postings",
-    "crates/leit_fusion",
-    "crates/leit_collect",
-    "crates/leit_index",
-    "crates/leit_benchmark",
-    "crates/leit-integration-tests",
+  "crates/leit_core",
+  "crates/leit_score",
+  "crates/leit_query",
+  "crates/leit_text",
+  "crates/leit_postings",
+  "crates/leit_fusion",
+  "crates/leit_collect",
+  "crates/leit_index",
+  "crates/leit_benchmark",
+  "crates/leit-integration-tests",
 ]
 resolver = "2"
 

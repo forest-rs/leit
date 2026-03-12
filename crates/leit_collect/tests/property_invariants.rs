@@ -122,6 +122,7 @@ fn threshold_is_absent_until_topk_reaches_capacity() {
         <TopKCollector<u32> as Collector<u32>>::threshold(&collector),
         Some(Score::new(0.5))
     );
-    assert!(collector.can_skip(Score::new(0.5)));
+    assert!(!collector.can_skip(Score::new(0.5)));
     assert!(!collector.can_skip(Score::new(0.6)));
+    assert!(collector.can_skip(Score::new(0.4)));
 }

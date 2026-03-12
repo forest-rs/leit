@@ -16,14 +16,14 @@ publish = false
 [features]
 default = ["std"]
 std = [
-    "leit_core/std",
-    "leit_score/std",
-    "leit_collect/std",
-    "leit_fusion/std",
-    "leit_query/std",
-    "leit_index/std",
-    "leit_text/std",
-    "leit_postings/std",
+  "leit_core/std",
+  "leit_score/std",
+  "leit_collect/std",
+  "leit_fusion/std",
+  "leit_query/std",
+  "leit_index/std",
+  "leit_text/std",
+  "leit_postings/std",
 ]
 
 [dependencies]
