@@ -1,6 +1,6 @@
 ---
 id: lei-fp20
-status: in_progress
+status: closed
 deps: [lei-z4d1]
 links: []
 created: 2026-03-12T01:12:50Z
@@ -22,3 +22,7 @@ Planner and execution tests prove equivalent terms resolve to stable canonical T
 **2026-03-12T02:19:52Z**
 
 Implemented the execution-facing query type rename: user-facing builder output is now UserQueryProgram/UserQueryNode, while canonical TermId-based planned programs are now QueryProgram/QueryNode. Added a planner contract test asserting equivalent textual terms lower to the same canonical term handle. Verified with cargo test -p leit_query -p leit_index -p leit-integration-tests and cargo clippy -p leit_query -p leit_index --all-targets -- -D warnings.
+
+**2026-03-12T05:37:57Z**
+
+Implemented in commit 84b07c2. Execution-facing query programs now use canonical TermId handles with added planner and invariant coverage.

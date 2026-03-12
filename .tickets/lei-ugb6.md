@@ -1,6 +1,6 @@
 ---
 id: lei-ugb6
-status: open
+status: closed
 deps: [lei-z4d1]
 links: []
 created: 2026-03-12T01:12:50Z
@@ -22,3 +22,7 @@ leit_postings exposes DocCursor, TfCursor, and a block-aware extension seam.\nTh
 **2026-03-12T04:13:51Z**
 
 Added a public block-aware cursor seam in leit_postings: BlockCursorState plus BlockCursor over the existing DocCursor/TfCursor layering. The in-memory cursor exposes singleton blocks rather than reporting unsupported. Verified with cargo test -p leit_postings, cargo test -p leit-integration-tests --test phase1_readiness, and cargo clippy -p leit_postings --all-targets -- -D warnings.
+
+**2026-03-12T05:38:07Z**
+
+Implemented in commit 21394a6. leit_postings now exposes BlockCursor and BlockCursorState, with invariant coverage for the singleton in-memory seam.

@@ -1,6 +1,6 @@
 ---
 id: lei-zyol
-status: open
+status: closed
 deps: [lei-z4d1]
 links: []
 created: 2026-03-12T01:12:50Z
@@ -22,3 +22,7 @@ Collector API exposes explicit begin/finish-style lifecycle and threshold semant
 **2026-03-12T02:24:47Z**
 
 Added explicit collector lifecycle and threshold semantics. Collector now exposes begin_query, threshold, and finish; can_skip derives from threshold. TopKCollector clears state between queries and CountCollector resets per query. Verified with cargo test -p leit_collect, cargo test -p leit_index -p leit-integration-tests --test phase1_readiness, and cargo clippy -p leit_collect -p leit_index -p leit-integration-tests --all-targets -- -D warnings.
+
+**2026-03-12T05:38:01Z**
+
+Implemented in commit f194da4. Collectors now have explicit begin_query, threshold, and finish lifecycle hooks with reuse and threshold invariant coverage.
