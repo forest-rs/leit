@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/leit_core",
+    "crates/leit_query",
     "crates/leit_score",
 ]
 resolver = "2"
@@ -20,6 +21,7 @@ categories = ["algorithms", "data-structures", "database-implementations"]
 [workspace.dependencies]
 # Internal crate dependencies
 leit_core = { default-features = false, path = "crates/leit_core" }
+leit_query = { default-features = false, path = "crates/leit_query" }
 leit_score = { default-features = false, path = "crates/leit_score" }
 
 # Testing

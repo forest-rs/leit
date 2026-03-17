@@ -168,6 +168,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "leit_query"
+version = "0.1.0"
+dependencies = [
+ "leit_core",
+ "proptest",
+]
+
+[[package]]
 name = "leit_score"
 version = "0.1.0"
 dependencies = [
