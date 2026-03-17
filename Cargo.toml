@@ -1,14 +1,24 @@
 [workspace]
-resolver = "2"
 members = [
     "crates/leit_core",
 ]
+resolver = "2"
 
 [workspace.package]
+version = "0.1.0"
+description = "A fast search engine library inspired by Lucene"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.88.0"
+authors = ["LeiT Contributors"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/forest-rs/leit"
+homepage = "https://github.com/forest-rs/leit"
+keywords = ["information-retrieval", "lucene", "search"]
+categories = ["algorithms", "data-structures", "database-implementations"]
+
+[workspace.dependencies]
+# Internal crate dependencies
+leit_core = { default-features = false, path = "crates/leit_core" }
 
 [workspace.lints]
 # LINEBENDER LINT SET - Cargo.toml - v8
@@ -63,5 +73,3 @@ clippy.wildcard_dependencies = "warn"
 # Prefer using `#[expect(...)]` instead of `#[allow(...)]`.
 # `#[expect(...)]` warns when the suppressed lint no longer fires.
 clippy.allow_attributes = "warn"
-
-[workspace.dependencies]
