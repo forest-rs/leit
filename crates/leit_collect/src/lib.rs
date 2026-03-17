@@ -16,10 +16,6 @@ use core::cmp::Ordering;
 use core::mem;
 use leit_core::{EntityId, Score, ScoredHit};
 
-// ============================================================================
-// Collector Trait
-// ============================================================================
-
 /// Trait for collecting search results.
 pub trait Collector<Id: EntityId> {
     /// Final output produced for one query.
@@ -56,10 +52,6 @@ pub trait Collector<Id: EntityId> {
         self.len() == 0
     }
 }
-
-// ============================================================================
-// TopKCollector
-// ============================================================================
 
 /// A collector that maintains the top-k hits by score.
 ///
@@ -177,10 +169,6 @@ impl<Id: EntityId> Ord for ReverseHit<Id> {
             .then_with(|| other.0.id.cmp(&self.0.id))
     }
 }
-
-// ============================================================================
-// CountCollector
-// ============================================================================
 
 /// A simple collector that just counts hits.
 #[derive(Clone, Copy, Debug, Default)]

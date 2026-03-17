@@ -25,10 +25,6 @@ use icu_locid::LanguageIdentifier;
 use leit_core::FieldId;
 use unicode_normalization::UnicodeNormalization;
 
-// ============================================================================
-// Token
-// ============================================================================
-
 /// A token produced by tokenization.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token<'a> {
@@ -82,19 +78,11 @@ impl OwnedToken {
     }
 }
 
-// ============================================================================
-// Tokenizer Trait
-// ============================================================================
-
 /// Trait for tokenizing text.
 pub trait Tokenizer {
     /// Tokenize the given text.
     fn tokenize<'a>(&self, text: &'a str, output: &mut Vec<Token<'a>>);
 }
-
-// ============================================================================
-// Normalizer Trait
-// ============================================================================
 
 /// Trait for normalizing text.
 pub trait Normalizer {
@@ -104,10 +92,6 @@ pub trait Normalizer {
     /// Check if normalization is needed for this text.
     fn needs_normalize(&self, text: &str) -> bool;
 }
-
-// ============================================================================
-// WhitespaceTokenizer
-// ============================================================================
 
 /// A simple whitespace tokenizer.
 #[derive(Clone, Copy, Debug, Default)]
@@ -153,10 +137,6 @@ impl Tokenizer for WhitespaceTokenizer {
         self.tokenize_into(text, 0, |token| output.push(token));
     }
 }
-
-// ============================================================================
-// UnicodeNormalizer
-// ============================================================================
 
 /// Canonical Unicode normalization applied before case mapping.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -320,10 +300,6 @@ fn needs_case_mapping(text: &str, case_mapping: CaseMapping) -> bool {
     }
 }
 
-// ============================================================================
-// Analyzer
-// ============================================================================
-
 /// Combines a tokenizer with zero or more normalizers.
 pub struct Analyzer {
     tokenizer: Box<dyn Tokenizer>,
@@ -371,10 +347,6 @@ impl Analyzer {
             .collect()
     }
 }
-
-// ============================================================================
-// FieldAnalyzers
-// ============================================================================
 
 /// Registry of analyzers per field.
 pub struct FieldAnalyzers {
@@ -432,10 +404,6 @@ impl Default for FieldAnalyzers {
         Self::new()
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

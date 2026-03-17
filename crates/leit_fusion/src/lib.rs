@@ -135,12 +135,15 @@ pub fn fuse(ranked_lists: &[Vec<RankedResult>], config: Option<FusionConfig>) ->
     let mut ranks_by_id: BTreeMap<String, Vec<usize>> = BTreeMap::new();
 
     // Collect ranks first so floating-point accumulation order is deterministic.
+    // Per-list deduplication: keep the best (lowest) rank for each ID within a list.
     for list in ranked_lists {
+        let mut best_in_list: BTreeMap<&str, usize> = BTreeMap::new();
         for result in list {
-            ranks_by_id
-                .entry(result.id.clone())
-                .or_default()
-                .push(result.rank);
+            let entry = best_in_list.entry(&result.id).or_insert(usize::MAX);
+            *entry = (*entry).min(result.rank);
+        }
+        for (id, rank) in best_in_list {
+            ranks_by_id.entry(String::from(id)).or_default().push(rank);
         }
     }
 

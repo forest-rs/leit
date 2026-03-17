@@ -1,8 +1,11 @@
 [workspace]
 members = [
+    "crates/leit_benchmark",
     "crates/leit_collect",
     "crates/leit_core",
     "crates/leit_fusion",
+    "crates/leit_index",
+    "crates/leit_integration_tests",
     "crates/leit_postings",
     "crates/leit_query",
     "crates/leit_score",
@@ -24,9 +27,12 @@ categories = ["algorithms", "data-structures", "database-implementations"]
 
 [workspace.dependencies]
 # Internal crate dependencies
+leit_benchmark = { path = "crates/leit_benchmark" }
 leit_collect = { default-features = false, path = "crates/leit_collect" }
 leit_core = { default-features = false, path = "crates/leit_core" }
 leit_fusion = { default-features = false, path = "crates/leit_fusion" }
+leit_index = { default-features = false, path = "crates/leit_index" }
+leit_integration_tests = { path = "crates/leit_integration_tests" }
 leit_postings = { default-features = false, path = "crates/leit_postings" }
 leit_query = { default-features = false, path = "crates/leit_query" }
 leit_score = { default-features = false, path = "crates/leit_score" }

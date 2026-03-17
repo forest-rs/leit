@@ -16,264 +16,19 @@ extern crate std;
 
 extern crate alloc;
 
-use alloc::boxed::Box;
-use alloc::sync::Arc;
-use alloc::vec;
-use alloc::vec::Vec;
-
-use leit_core::QueryNodeId;
-
+mod builder;
+mod planner;
 mod types;
 
-use types::QueryArena;
 pub use types::{
     BooleanOp, BooleanView, BoostView, ExecutionPlan, ExtractionError, FeatureSet, FieldRegistry,
     PhraseView, PlannerScratch, PlanningContext, QueryError, QueryNode, QueryProgram,
     TermDictionary, TermView, UserQueryNode, UserQueryProgram,
 };
 
-// ============================================================================
-// Construction DSL
-// ============================================================================
+pub use builder::{QueryBuilder, phrase, phrase_with_slop, term, term_with_field};
 
-/// Builder for constructing query programs.
-#[derive(Debug, Default)]
-pub struct QueryBuilder {
-    arena: QueryArena,
-    root: Option<QueryNodeId>,
-}
-
-fn query_node_id(index: usize) -> QueryNodeId {
-    QueryNodeId::new(u32::try_from(index).expect("query program exceeded u32 node IDs"))
-}
-
-const fn checked_len_plus_one(len: usize) -> usize {
-    len.checked_add(1).expect("query node count overflow")
-}
-
-impl QueryBuilder {
-    /// Create a new query builder.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Build the query program from the tracked root node.
-    pub fn build(self) -> Option<UserQueryProgram> {
-        if self.arena.is_empty() {
-            return None;
-        }
-        let root = self.root.unwrap_or_else(|| {
-            query_node_id(
-                self.arena
-                    .len()
-                    .checked_sub(1)
-                    .expect("query arena cannot be empty"),
-            )
-        });
-        UserQueryProgram::is_valid(&self.arena, root)
-            .then(|| UserQueryProgram::new(self.arena, root))
-    }
-
-    /// Set the root node for the query program.
-    pub const fn set_root(&mut self, id: QueryNodeId) {
-        self.root = Some(id);
-    }
-
-    /// Add a term query.
-    pub fn term<S: Into<Arc<str>>>(&mut self, term: S) -> QueryNodeId {
-        let id = self.arena.push(UserQueryNode::Term {
-            term: term.into(),
-            field: None,
-        });
-        self.root = Some(id);
-        id
-    }
-
-    /// Add a term query with a field.
-    pub fn term_with_field<S: Into<Arc<str>>>(&mut self, term: S, field: S) -> QueryNodeId {
-        let id = self.arena.push(UserQueryNode::Term {
-            term: term.into(),
-            field: Some(field.into()),
-        });
-        self.root = Some(id);
-        id
-    }
-
-    /// Add a phrase query with initial terms.
-    ///
-    /// Note: phrase execution is not yet implemented in the Phase 1 planner.
-    /// This node type is available for query representation and inspection.
-    pub fn phrase(&mut self, terms: Vec<Arc<str>>) -> QueryNodeId {
-        let id = self.arena.push(UserQueryNode::Phrase { terms, slop: 0 });
-        self.root = Some(id);
-        id
-    }
-
-    /// Add a phrase query with terms and slop.
-    ///
-    /// Note: phrase execution is not yet implemented in the Phase 1 planner.
-    /// This node type is available for query representation and inspection.
-    pub fn phrase_with_slop(&mut self, terms: Vec<Arc<str>>, slop: u32) -> QueryNodeId {
-        let id = self.arena.push(UserQueryNode::Phrase { terms, slop });
-        self.root = Some(id);
-        id
-    }
-
-    /// Add a boolean AND query with initial children.
-    pub fn and(&mut self, children: Vec<QueryNodeId>) -> QueryNodeId {
-        let id = self.arena.push(UserQueryNode::Boolean {
-            op: BooleanOp::And,
-            children,
-        });
-        self.root = Some(id);
-        id
-    }
-
-    /// Add a boolean OR query with initial children.
-    pub fn or(&mut self, children: Vec<QueryNodeId>) -> QueryNodeId {
-        let id = self.arena.push(UserQueryNode::Boolean {
-            op: BooleanOp::Or,
-            children,
-        });
-        self.root = Some(id);
-        id
-    }
-
-    /// Add a boolean NOT query with child.
-    pub fn not(&mut self, child: QueryNodeId) -> QueryNodeId {
-        let id = self.arena.push(UserQueryNode::Boolean {
-            op: BooleanOp::Not,
-            children: vec![child],
-        });
-        self.root = Some(id);
-        id
-    }
-
-    /// Add a boost query.
-    pub fn boost(&mut self, child: QueryNodeId, factor: f32) -> QueryNodeId {
-        let id = self.arena.push(UserQueryNode::Boost { child, factor });
-        self.root = Some(id);
-        id
-    }
-}
-
-// ============================================================================
-// Fluent Functions
-// ============================================================================
-
-/// Create a term query in one call.
-pub fn term<S: Into<Arc<str>>>(term: S) -> UserQueryProgram {
-    let mut builder = QueryBuilder::new();
-    builder.term(term);
-    builder.build().expect("term should create valid program")
-}
-
-/// Create a term query with a field in one call.
-pub fn term_with_field<S: Into<Arc<str>>>(term: S, field: S) -> UserQueryProgram {
-    let mut builder = QueryBuilder::new();
-    builder.term_with_field(term, field);
-    builder
-        .build()
-        .expect("term_with_field should create valid program")
-}
-
-/// Create a phrase query in one call.
-pub fn phrase(terms: &[&str]) -> UserQueryProgram {
-    let mut builder = QueryBuilder::new();
-    let terms: Vec<Arc<str>> = terms.iter().map(|t| (*t).into()).collect();
-    builder.phrase(terms);
-    builder.build().expect("phrase should create valid program")
-}
-
-/// Create a phrase query with slop in one call.
-pub fn phrase_with_slop(terms: &[&str], slop: u32) -> UserQueryProgram {
-    let mut builder = QueryBuilder::new();
-    let terms: Vec<Arc<str>> = terms.iter().map(|t| (*t).into()).collect();
-    builder.phrase_with_slop(terms, slop);
-    builder
-        .build()
-        .expect("phrase_with_slop should create valid program")
-}
-
-/// Phase 1 planner for execution-facing query programs.
-#[derive(Clone, Debug)]
-pub struct Planner {
-    max_depth: usize,
-    max_nodes: usize,
-}
-
-impl Planner {
-    /// Create a planner with default limits.
-    pub const fn new() -> Self {
-        Self {
-            max_depth: 32,
-            max_nodes: 1024,
-        }
-    }
-
-    /// Set the maximum planner depth.
-    #[must_use]
-    pub const fn with_max_depth(mut self, depth: usize) -> Self {
-        self.max_depth = depth;
-        self
-    }
-
-    /// Set the maximum planner node count.
-    #[must_use]
-    pub const fn with_max_nodes(mut self, count: usize) -> Self {
-        self.max_nodes = count;
-        self
-    }
-
-    /// Plan a textual query into an execution-facing query program.
-    pub fn plan(
-        &self,
-        query: &str,
-        context: &PlanningContext<'_>,
-        scratch: &mut PlannerScratch,
-    ) -> Result<ExecutionPlan, QueryError> {
-        scratch.reset();
-        let parsed = parse_phase1_query(query)?;
-        let depth = parsed.depth();
-        if depth > self.max_depth {
-            return Err(QueryError::MaxDepthExceeded {
-                max_depth: self.max_depth,
-                actual_depth: depth,
-            });
-        }
-
-        let mut nodes = Vec::new();
-        let root = lower_phase1_expr(&parsed, context, &mut nodes, self.max_nodes)?;
-        let node_count = nodes.len();
-        if node_count > self.max_nodes {
-            return Err(QueryError::MaxNodesExceeded {
-                max_nodes: self.max_nodes,
-                actual_nodes: node_count,
-            });
-        }
-
-        let selectivity = if node_count == 0 {
-            1.0
-        } else {
-            let node_count_u16 = u16::try_from(node_count)
-                .expect("planner node count exceeded supported selectivity precision");
-            1.0 / f32::from(node_count_u16)
-        };
-
-        Ok(ExecutionPlan {
-            program: QueryProgram::try_new(nodes, root, depth)?,
-            selectivity,
-            cost: u32::try_from(node_count).expect("planner node count exceeded u32 cost"),
-            required_features: FeatureSet::basic(),
-        })
-    }
-}
-
-impl Default for Planner {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub use planner::Planner;
 
 #[cfg(test)]
 fn assert_f32_eq(actual: f32, expected: f32) {
@@ -281,175 +36,14 @@ fn assert_f32_eq(actual: f32, expected: f32) {
     assert!(delta <= f32::EPSILON, "expected {expected}, got {actual}");
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum Phase1Expr {
-    Term {
-        field: Option<alloc::string::String>,
-        term: alloc::string::String,
-        boost: f32,
-    },
-    And(Vec<Self>),
-    Or(Vec<Self>),
-    Not(Box<Self>),
-}
-
-impl Phase1Expr {
-    fn depth(&self) -> usize {
-        match self {
-            Self::Term { .. } => 1,
-            Self::Not(child) => child.depth().checked_add(1).expect("query depth overflow"),
-            Self::And(children) | Self::Or(children) => children
-                .iter()
-                .map(Self::depth)
-                .max()
-                .unwrap_or(0)
-                .checked_add(1)
-                .expect("query depth overflow"),
-        }
-    }
-}
-
-fn parse_phase1_query(query: &str) -> Result<Phase1Expr, QueryError> {
-    let trimmed = query.trim();
-    if trimmed.is_empty() {
-        return Err(QueryError::ParseError);
-    }
-
-    if let Some((lhs, rhs)) = trimmed.split_once(" OR ") {
-        return Ok(Phase1Expr::Or(vec![
-            parse_phase1_query(lhs)?,
-            parse_phase1_query(rhs)?,
-        ]));
-    }
-
-    if let Some((lhs, rhs)) = trimmed.split_once(" AND ") {
-        return Ok(Phase1Expr::And(vec![
-            parse_phase1_query(lhs)?,
-            parse_phase1_query(rhs)?,
-        ]));
-    }
-
-    if let Some(rest) = trimmed.strip_prefix("NOT ") {
-        return Ok(Phase1Expr::Not(Box::new(parse_phase1_query(rest)?)));
-    }
-
-    let (field, term) = if let Some((field, term)) = trimmed.split_once(':') {
-        (
-            Some(alloc::string::String::from(field)),
-            alloc::string::String::from(term),
-        )
-    } else {
-        (None, alloc::string::String::from(trimmed))
-    };
-
-    if term.is_empty() {
-        return Err(QueryError::ParseError);
-    }
-
-    let tokens: Vec<_> = term.split_whitespace().collect();
-    if tokens.len() > 1 {
-        if field.is_some() {
-            return Err(QueryError::ParseError);
-        }
-        return Ok(Phase1Expr::And(
-            tokens
-                .into_iter()
-                .map(|token| Phase1Expr::Term {
-                    field: field.clone(),
-                    term: alloc::string::String::from(token),
-                    boost: 1.0,
-                })
-                .collect(),
-        ));
-    }
-
-    Ok(Phase1Expr::Term {
-        field,
-        term,
-        boost: 1.0,
-    })
-}
-
-fn lower_phase1_expr(
-    expr: &Phase1Expr,
-    context: &PlanningContext<'_>,
-    nodes: &mut Vec<QueryNode>,
-    max_nodes: usize,
-) -> Result<QueryNodeId, QueryError> {
-    if nodes.len() >= max_nodes {
-        return Err(QueryError::MaxNodesExceeded {
-            max_nodes,
-            actual_nodes: checked_len_plus_one(nodes.len()),
-        });
-    }
-
-    let node = match expr {
-        Phase1Expr::Term { field, term, boost } => {
-            let field_id = if let Some(field_name) = field {
-                context.fields.resolve_field(field_name).ok_or_else(|| {
-                    QueryError::UnknownField {
-                        field: field_name.clone(),
-                    }
-                })?
-            } else {
-                context.default_field
-            };
-
-            let term_id = context
-                .dictionary
-                .resolve_term(field_id, term)
-                .ok_or_else(|| QueryError::UnknownTerm {
-                    field: field_id,
-                    term: term.clone(),
-                })?;
-
-            QueryNode::Term {
-                field: field_id,
-                term: term_id,
-                boost: *boost * context.default_boost,
-            }
-        }
-        Phase1Expr::And(children) => {
-            let mut child_ids = Vec::with_capacity(children.len());
-            for child in children {
-                child_ids.push(lower_phase1_expr(child, context, nodes, max_nodes)?);
-            }
-            QueryNode::And {
-                children: child_ids,
-                boost: 1.0,
-            }
-        }
-        Phase1Expr::Or(children) => {
-            let mut child_ids = Vec::with_capacity(children.len());
-            for child in children {
-                child_ids.push(lower_phase1_expr(child, context, nodes, max_nodes)?);
-            }
-            QueryNode::Or {
-                children: child_ids,
-                boost: 1.0,
-            }
-        }
-        Phase1Expr::Not(child) => QueryNode::Not {
-            child: lower_phase1_expr(child, context, nodes, max_nodes)?,
-        },
-    };
-
-    let id = query_node_id(nodes.len());
-    nodes.push(node);
-    Ok(id)
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
-    // ------------------------------------------------------------------------
-    // Construction Tests
-    // ------------------------------------------------------------------------
+    use leit_core::QueryNodeId;
+
+    use super::*;
 
     #[test]
     fn test_builder_term() {
@@ -602,10 +196,6 @@ mod tests {
         assert_eq!(root_view.children.len(), 2);
     }
 
-    // ------------------------------------------------------------------------
-    // Fluent Function Tests
-    // ------------------------------------------------------------------------
-
     #[test]
     fn test_fluent_term() {
         let program = term("hello");
@@ -656,10 +246,6 @@ mod tests {
         assert_eq!(view.terms.len(), 3);
         assert_eq!(view.slop, 2);
     }
-
-    // ------------------------------------------------------------------------
-    // Traversal Tests
-    // ------------------------------------------------------------------------
 
     #[test]
     fn test_walk_single_node() {
@@ -715,10 +301,6 @@ mod tests {
         let children = program.children_of(program.root());
         assert_eq!(children.len(), 1);
     }
-
-    // ------------------------------------------------------------------------
-    // View Extraction Tests
-    // ------------------------------------------------------------------------
 
     #[test]
     fn test_term_view_extraction() {
@@ -801,10 +383,6 @@ mod tests {
         let err = result.unwrap_err();
         assert!(matches!(err, ExtractionError::InvalidNodeId(_)));
     }
-
-    // ------------------------------------------------------------------------
-    // Edge Cases
-    // ------------------------------------------------------------------------
 
     #[test]
     fn test_empty_builder() {
@@ -894,6 +472,7 @@ mod tests {
 
     #[test]
     fn test_walk_skips_missing_child_nodes() {
+        use crate::types::{QueryArena, UserQueryNode};
         let mut arena = QueryArena::default();
         let root = arena.push(UserQueryNode::Boolean {
             op: BooleanOp::Or,

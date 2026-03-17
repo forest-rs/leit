@@ -17,10 +17,6 @@ use alloc::vec::Vec;
 
 use leit_core::{EntityId, TermId};
 
-// ============================================================================
-// Posting
-// ============================================================================
-
 /// A single posting: term occurrence in a document with ``Id``.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Posting<Id: EntityId> {
@@ -31,10 +27,6 @@ pub struct Posting<Id: EntityId> {
     /// Optional positions (for phrase queries).
     pub positions: Option<Vec<u32>>,
 }
-
-// ============================================================================
-// PostingsList
-// ============================================================================
 
 /// All postings for a single ``TermId``.
 #[derive(Clone, Debug)]
@@ -75,10 +67,6 @@ impl<Id: EntityId> PostingsList<Id> {
         self.postings.is_empty()
     }
 }
-
-// ============================================================================
-// TermDictionary
-// ============================================================================
 
 /// Bidirectional mapping between terms and ``TermId`` values.
 #[derive(Debug)]
@@ -142,10 +130,6 @@ impl Default for InMemoryTermDictionary {
     }
 }
 
-// ============================================================================
-// Cursor Traits
-// ============================================================================
-
 /// Cursor for traversing postings by document.
 pub trait DocCursor<Id: EntityId> {
     /// Get the current document ID.
@@ -191,10 +175,6 @@ pub trait BlockCursor<Id: EntityId>: TfCursor<Id> {
     /// Returns `true` when another block is available.
     fn advance_block(&mut self) -> bool;
 }
-
-// ============================================================================
-// InMemoryPostings
-// ============================================================================
 
 /// In-memory postings index.
 #[derive(Debug)]
@@ -302,10 +282,6 @@ impl<Id: EntityId> BlockCursor<Id> for InMemoryCursor<'_, Id> {
         self.advance()
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

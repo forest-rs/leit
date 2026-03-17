@@ -288,6 +288,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
+name = "leit_benchmark"
+version = "0.1.0"
+dependencies = [
+ "leit_core",
+ "leit_index",
+ "leit_text",
+]
+
+[[package]]
 name = "leit_collect"
 version = "0.1.0"
 dependencies = [
@@ -306,6 +315,33 @@ dependencies = [
 name = "leit_fusion"
 version = "0.1.0"
 dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "leit_index"
+version = "0.1.0"
+dependencies = [
+ "leit_collect",
+ "leit_core",
+ "leit_query",
+ "leit_score",
+ "leit_text",
+ "proptest",
+]
+
+[[package]]
+name = "leit_integration_tests"
+version = "0.1.0"
+dependencies = [
+ "leit_collect",
+ "leit_core",
+ "leit_fusion",
+ "leit_index",
+ "leit_postings",
+ "leit_query",
+ "leit_score",
+ "leit_text",
  "proptest",
 ]
 

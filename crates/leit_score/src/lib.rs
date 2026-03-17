@@ -26,10 +26,6 @@ use core_maths::CoreFloat as _;
 
 use leit_core::Score;
 
-// ============================================================================
-// Scorer Trait
-// ============================================================================
-
 /// Trait for scoring documents.
 ///
 /// This trait is designed to be generic enough to support:
@@ -54,10 +50,6 @@ pub trait Scorer {
         false
     }
 }
-
-// ============================================================================
-// CombinedScorer
-// ============================================================================
 
 /// Combines exactly two scorers with configurable weights.
 /// For more scorers, nest them: `CombinedScorer<CombinedScorer<A, B>, C>`
@@ -99,10 +91,6 @@ impl<A: Scorer, B: Scorer> Scorer for CombinedScorer<A, B> {
     }
 }
 
-// ============================================================================
-// Scoring Stats
-// ============================================================================
-
 /// Statistics needed for scoring a document.
 ///
 /// For single-field scorers like BM25, the top-level `term_frequency` and
@@ -137,10 +125,6 @@ impl ScoringStats {
         }
     }
 }
-
-// ============================================================================
-// BM25
-// ============================================================================
 
 /// BM25 scoring parameters.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -284,10 +268,6 @@ impl Scorer for Bm25Scorer {
         false
     }
 }
-
-// ============================================================================
-// BM25F (Multi-field)
-// ============================================================================
 
 /// Field-specific scoring information.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

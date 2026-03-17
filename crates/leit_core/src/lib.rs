@@ -20,10 +20,6 @@ use core::fmt;
 use core::hash::Hash;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
 
-// ============================================================================
-// Identifiers
-// ============================================================================
-
 /// Unique identifier for a field in an index.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
@@ -109,10 +105,6 @@ impl CursorSlotId {
     }
 }
 
-// ============================================================================
-// EntityId Trait
-// ============================================================================
-
 /// Trait for entity identifiers.
 ///
 /// This trait is intentionally minimal - it does NOT require `Send + Sync`
@@ -124,10 +116,6 @@ impl EntityId for u32 {}
 impl EntityId for u64 {}
 impl EntityId for i32 {}
 impl EntityId for i64 {}
-
-// ============================================================================
-// Score
-// ============================================================================
 
 /// A retrieval score.
 ///
@@ -266,10 +254,6 @@ impl fmt::Display for Score {
     }
 }
 
-// ============================================================================
-// Hit
-// ============================================================================
-
 /// A scored search result.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScoredHit<Id: EntityId> {
@@ -326,10 +310,6 @@ impl<Id: EntityId> fmt::Display for ScoredHit<Id> {
     }
 }
 
-// ============================================================================
-// CoreError
-// ============================================================================
-
 /// Core error types for Leit operations.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CoreError {
@@ -360,10 +340,6 @@ impl fmt::Display for CoreError {
         }
     }
 }
-
-// ============================================================================
-// ScratchSpace & Workspace
-// ============================================================================
 
 /// Trait for reusable scratch memory.
 pub trait ScratchSpace {
