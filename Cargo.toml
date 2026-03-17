@@ -1,8 +1,12 @@
 [workspace]
 members = [
+    "crates/leit_collect",
     "crates/leit_core",
+    "crates/leit_fusion",
+    "crates/leit_postings",
     "crates/leit_query",
     "crates/leit_score",
+    "crates/leit_text",
 ]
 resolver = "2"
 
@@ -20,15 +24,24 @@ categories = ["algorithms", "data-structures", "database-implementations"]
 
 [workspace.dependencies]
 # Internal crate dependencies
+leit_collect = { default-features = false, path = "crates/leit_collect" }
 leit_core = { default-features = false, path = "crates/leit_core" }
+leit_fusion = { default-features = false, path = "crates/leit_fusion" }
+leit_postings = { default-features = false, path = "crates/leit_postings" }
 leit_query = { default-features = false, path = "crates/leit_query" }
 leit_score = { default-features = false, path = "crates/leit_score" }
+leit_text = { default-features = false, path = "crates/leit_text" }
 
 # Testing
 proptest = { version = "1.0" }
 
 # Math
 core_maths = { default-features = false, version = "0.1" }
+
+# Text normalization
+icu_casemap = { version = "1.5" }
+icu_locid = { default-features = false, version = "1.5" }
+unicode-normalization = { default-features = false, version = "0.1.25" }
 
 [workspace.lints]
 # LINEBENDER LINT SET - Cargo.toml - v8
