@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/leit_core",
+    "crates/leit_score",
 ]
 resolver = "2"
 
@@ -19,6 +20,13 @@ categories = ["algorithms", "data-structures", "database-implementations"]
 [workspace.dependencies]
 # Internal crate dependencies
 leit_core = { default-features = false, path = "crates/leit_core" }
+leit_score = { default-features = false, path = "crates/leit_score" }
+
+# Testing
+proptest = { version = "1.0" }
+
+# Math
+core_maths = { default-features = false, version = "0.1" }
 
 [workspace.lints]
 # LINEBENDER LINT SET - Cargo.toml - v8
