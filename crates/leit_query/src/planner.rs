@@ -249,28 +249,66 @@ fn lower_phase1_expr(
 
     let node = match expr {
         Phase1Expr::Term { field, term, boost } => {
-            let field_id = if let Some(field_name) = field {
-                context.fields.resolve_field(field_name).ok_or_else(|| {
+            if let Some(field_name) = field {
+                // Explicit field: resolve directly
+                let field_id = context.fields.resolve_field(field_name).ok_or_else(|| {
                     QueryError::UnknownField {
                         field: field_name.clone(),
                     }
-                })?
-            } else {
-                context.default_field
-            };
-
-            let term_id = context
-                .dictionary
-                .resolve_term(field_id, term)
-                .ok_or_else(|| QueryError::UnknownTerm {
-                    field: field_id,
-                    term: term.clone(),
                 })?;
-
-            QueryNode::Term {
-                field: field_id,
-                term: term_id,
-                boost: *boost * context.default_boost,
+                match context.dictionary.resolve_term(field_id, term) {
+                    Some(term_id) => QueryNode::Term {
+                        field: field_id,
+                        term: term_id,
+                        boost: *boost * context.default_boost,
+                    },
+                    None => EMPTY_NODE,
+                }
+            } else if context.default_fields.len() == 1 {
+                // Single default field
+                let field_id = context.default_fields[0];
+                match context.dictionary.resolve_term(field_id, term) {
+                    Some(term_id) => QueryNode::Term {
+                        field: field_id,
+                        term: term_id,
+                        boost: *boost * context.default_boost,
+                    },
+                    None => EMPTY_NODE,
+                }
+            } else if context.default_fields.is_empty() {
+                return Err(QueryError::ParseError);
+            } else {
+                // Multiple default fields: expand to OR
+                let mut child_ids = Vec::new();
+                for &field_id in &context.default_fields {
+                    if nodes.len() >= max_nodes {
+                        return Err(QueryError::MaxNodesExceeded {
+                            max_nodes,
+                            actual_nodes: checked_len_plus_one(nodes.len()),
+                        });
+                    }
+                    if let Some(term_id) = context.dictionary.resolve_term(field_id, term) {
+                        let child_node = QueryNode::Term {
+                            field: field_id,
+                            term: term_id,
+                            boost: *boost * context.default_boost,
+                        };
+                        let child_id = query_node_id(nodes.len());
+                        nodes.push(child_node);
+                        child_ids.push(child_id);
+                    }
+                }
+                match child_ids.len() {
+                    0 => EMPTY_NODE,
+                    1 => {
+                        // Only one field matched — already pushed, return its ID directly
+                        return Ok(child_ids[0]);
+                    }
+                    _ => QueryNode::Or {
+                        children: child_ids,
+                        boost: 1.0,
+                    },
+                }
             }
         }
         Phase1Expr::And(children) => {

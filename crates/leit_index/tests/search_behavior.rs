@@ -218,7 +218,7 @@ fn field_qualified_and_mixed_scope_queries_are_stable() {
     assert_eq!(ids, BTreeSet::from([1, 3]));
 
     let ids: BTreeSet<_> = mixed_and.into_iter().map(|hit| hit.id).collect();
-    assert_eq!(ids, BTreeSet::from([1, 2]));
+    assert_eq!(ids, BTreeSet::from([1, 2, 3]));
 
     let ids: Vec<_> = mixed_or.into_iter().map(|hit| hit.id).collect();
     assert_eq!(ids.len(), 3);
@@ -331,4 +331,72 @@ fn lower_level_planner_produces_empty_plan_for_unknown_term() {
         .execute(&index, &plan, SearchScorer::bm25(), &mut collector)
         .expect("empty plan should execute");
     assert!(results.is_empty(), "unknown term should match no documents");
+}
+
+#[test]
+fn bare_query_matches_documents_in_any_indexed_field() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(1, &[(FieldId::new(1), "rust programming")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(2), "rust retrieval")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let hits = search(&index, "rust", 10).expect("bare query should search across fields");
+
+    let ids: BTreeSet<_> = hits.into_iter().map(|hit| hit.id).collect();
+    assert_eq!(
+        ids,
+        BTreeSet::from([1, 2]),
+        "bare 'rust' should match docs in both title and body fields"
+    );
+}
+
+fn search_bm25f(
+    index: &InMemoryIndex,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
+    let mut workspace = ExecutionWorkspace::new();
+    workspace.search(index, query, limit, SearchScorer::bm25f())
+}
+
+#[test]
+fn bm25f_scores_cross_field_matches_independently() {
+    // BM25F scores each field independently (cross-field aggregation is Phase 2)
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    // Doc 1 has "rust" in both fields
+    builder
+        .index_document(
+            1,
+            &[
+                (FieldId::new(1), "rust programming"),
+                (FieldId::new(2), "rust is great"),
+            ],
+        )
+        .expect("document should index");
+    // Doc 2 has "rust" only in title, not in body
+    builder
+        .index_document(2, &[(FieldId::new(1), "rust retrieval")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    // BM25F should produce valid scores for both documents
+    let hits = search_bm25f(&index, "rust", 10).expect("bm25f search should succeed");
+
+    assert_eq!(hits.len(), 2, "both docs should match");
+    assert!(
+        hits[0].score > leit_core::Score::ZERO,
+        "bm25f should produce positive score"
+    );
+    assert!(
+        hits[1].score > leit_core::Score::ZERO,
+        "bm25f should produce positive score"
+    );
 }

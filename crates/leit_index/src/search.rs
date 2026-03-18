@@ -111,8 +111,8 @@ impl ExecutionWorkspace {
     ) -> Result<ExecutionPlan, IndexError> {
         self.clear();
         let planner = Planner::new();
-        let default_field = index.default_field();
-        let context = PlanningContext::new(index, index).with_default_field(default_field);
+        let default_fields = index.default_fields();
+        let context = PlanningContext::new(index, index).with_default_fields(default_fields);
         planner
             .plan(query, &context, &mut self.planner)
             .map_err(IndexError::Query)

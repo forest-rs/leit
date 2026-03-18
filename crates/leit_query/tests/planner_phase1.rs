@@ -281,3 +281,62 @@ fn test_planned_query_program_rejects_invalid_child_id() {
         1,
     );
 }
+
+#[test]
+fn test_planner_expands_bare_term_across_multiple_default_fields() {
+    let planner = Planner::new();
+    let dictionary = TestDictionary;
+    let fields = TestFieldRegistry;
+    let mut scratch = PlannerScratch::new();
+    let context = PlanningContext::new(&dictionary, &fields)
+        .with_default_fields(vec![TestFieldRegistry::title(), TestFieldRegistry::body()])
+        .with_default_boost(1.0);
+
+    let plan = planner
+        .plan("rust", &context, &mut scratch)
+        .expect("plan should expand bare term across fields");
+
+    // Should produce OR(title:rust, body:rust)
+    match plan.program.get(plan.program.root()) {
+        Some(QueryNode::Or { children, .. }) => {
+            assert_eq!(
+                children.len(),
+                2,
+                "OR should have two children for two default fields"
+            );
+            for child_id in children {
+                match plan.program.get(*child_id) {
+                    Some(QueryNode::Term { term, .. }) => {
+                        assert_eq!(*term, TestDictionary::rust());
+                    }
+                    other => panic!("expected Term child, got {other:?}"),
+                }
+            }
+        }
+        other => panic!("expected OR root for multi-field expansion, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_planner_multi_field_skips_fields_where_term_is_absent() {
+    let planner = Planner::new();
+    let dictionary = TestDictionary;
+    let fields = TestFieldRegistry;
+    let mut scratch = PlannerScratch::new();
+    let context = PlanningContext::new(&dictionary, &fields)
+        .with_default_fields(vec![TestFieldRegistry::title(), TestFieldRegistry::body()])
+        .with_default_boost(1.0);
+
+    let plan = planner
+        .plan("memory", &context, &mut scratch)
+        .expect("plan should resolve memory in body only");
+
+    // "memory" only exists in body, so should produce a single Term node, not OR
+    match plan.program.get(plan.program.root()) {
+        Some(QueryNode::Term { field, term, .. }) => {
+            assert_eq!(*field, TestFieldRegistry::body());
+            assert_eq!(*term, TestDictionary::memory());
+        }
+        other => panic!("expected single Term for term in one field only, got {other:?}"),
+    }
+}

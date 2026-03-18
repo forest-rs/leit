@@ -145,13 +145,13 @@ impl InMemoryIndex {
         u32_to_f32(stats.total_terms) / u32_to_f32(stats.doc_count)
     }
 
-    pub(crate) fn default_field(&self) -> FieldId {
-        self.field_stats
-            .values()
-            .map(|stats| stats.field_id)
-            .min()
-            .or_else(|| self.field_names.values().min().copied())
-            .unwrap_or(FieldId::new(0))
+    pub(crate) fn default_fields(&self) -> Vec<FieldId> {
+        let fields: Vec<FieldId> = self.field_stats.values().map(|s| s.field_id).collect();
+        if fields.is_empty() {
+            self.field_names.values().copied().collect()
+        } else {
+            fields
+        }
     }
 
     pub(crate) fn evaluate_plan(

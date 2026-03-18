@@ -583,11 +583,11 @@ pub trait TermDictionary {
 }
 
 /// Planning context for Phase 1 query planning.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct PlanningContext<'a> {
     pub(crate) dictionary: &'a dyn TermDictionary,
     pub(crate) fields: &'a dyn FieldRegistry,
-    pub(crate) default_field: leit_core::FieldId,
+    pub(crate) default_fields: Vec<leit_core::FieldId>,
     pub(crate) default_boost: f32,
 }
 
@@ -597,21 +597,28 @@ impl<'a> PlanningContext<'a> {
         Self {
             dictionary,
             fields,
-            default_field: leit_core::FieldId::new(0),
+            default_fields: Vec::new(),
             default_boost: 1.0,
         }
     }
 
-    /// Set the default field.
+    /// Set the default fields for unfielded term expansion.
     #[must_use]
-    pub const fn with_default_field(mut self, field: leit_core::FieldId) -> Self {
-        self.default_field = field;
+    pub fn with_default_fields(mut self, fields: Vec<leit_core::FieldId>) -> Self {
+        self.default_fields = fields;
+        self
+    }
+
+    /// Set a single default field (backward compatible).
+    #[must_use]
+    pub fn with_default_field(mut self, field: leit_core::FieldId) -> Self {
+        self.default_fields = alloc::vec![field];
         self
     }
 
     /// Set the default boost.
     #[must_use]
-    pub const fn with_default_boost(mut self, boost: f32) -> Self {
+    pub fn with_default_boost(mut self, boost: f32) -> Self {
         self.default_boost = boost;
         self
     }
@@ -620,7 +627,7 @@ impl<'a> PlanningContext<'a> {
 impl fmt::Debug for PlanningContext<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PlanningContext")
-            .field("default_field", &self.default_field)
+            .field("default_fields", &self.default_fields)
             .field("default_boost", &self.default_boost)
             .finish_non_exhaustive()
     }
