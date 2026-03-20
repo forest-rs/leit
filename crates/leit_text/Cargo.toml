@@ -1,5 +1,5 @@
 [package]
-name = "leit_core"
+name = "leit_text"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,12 +11,15 @@ description.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[dependencies]
+icu_casemap.workspace = true
+icu_locid.workspace = true
+leit_core.workspace = true
+unicode-normalization.workspace = true
+
 [features]
 default = ["std"]
-std = []
-
-[dev-dependencies]
-proptest = { workspace = true }
+std = ["leit_core/std"]
 
 [lints]
 workspace = true

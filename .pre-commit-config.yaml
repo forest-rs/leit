@@ -1,0 +1,123 @@
+repos:
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.44.0
+    hooks:
+      - id: typos
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.11
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-byte-order-marker
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: copyright-headers
+        name: copyright headers
+        entry: bash .github/copyright.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: taplo-fmt
+        name: taplo fmt
+        entry: bash -c 'taplo fmt && taplo fmt --check'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [toml]
+
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: bash -c 'cargo fmt --all && cargo fmt --all --check'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [rust]
+
+      - id: cargo-clippy-no-std
+        name: cargo clippy (no_std)
+        entry: bash .github/hooks/clippy-no-std.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [rust]
+
+      - id: cargo-clippy-fix
+        name: cargo clippy
+        entry: >-
+          bash -c
+          'cargo clippy --workspace --all-features --all-targets
+          --fix --allow-dirty --allow-staged -- -D warnings &&
+          cargo hack clippy --workspace --locked --optional-deps
+          --each-feature --ignore-unknown-features --features std
+          -- -D warnings'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [rust]
+
+      - id: cargo-clippy-auxiliary
+        name: cargo clippy (auxiliary)
+        entry: >-
+          bash -c
+          'cargo hack clippy
+          --exclude leit_index --exclude leit_benchmark --exclude leit_integration_tests
+          --workspace --locked --optional-deps --each-feature
+          --ignore-unknown-features --features std
+          --tests --benches --examples -- -D warnings'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [rust]
+
+      - id: cargo-clippy-wasm
+        name: cargo clippy (wasm32)
+        entry: bash .github/hooks/clippy-wasm.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [rust]
+
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --workspace --all-features
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [rust]
+
+      - id: cargo-test-doc
+        name: cargo test --doc
+        entry: cargo test --doc --workspace --all-features
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [rust]
+
+      - id: cargo-doc
+        name: cargo doc
+        entry: >-
+          bash -c
+          'RUSTDOCFLAGS="-D warnings" cargo doc --workspace
+          --no-deps --all-features --document-private-items'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        types: [rust]

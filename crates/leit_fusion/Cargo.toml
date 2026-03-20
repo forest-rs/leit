@@ -1,5 +1,5 @@
 [package]
-name = "leit_core"
+name = "leit_fusion"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,8 @@ categories.workspace = true
 [features]
 default = ["std"]
 std = []
+
+[dependencies]
 
 [dev-dependencies]
 proptest = { workspace = true }

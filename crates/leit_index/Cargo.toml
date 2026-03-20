@@ -1,5 +1,5 @@
 [package]
-name = "leit_core"
+name = "leit_index"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,9 +11,22 @@ description.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[dependencies]
+leit_collect.workspace = true
+leit_core.workspace = true
+leit_query.workspace = true
+leit_score.workspace = true
+leit_text.workspace = true
+
 [features]
 default = ["std"]
-std = []
+std = [
+    "leit_core/std",
+    "leit_text/std",
+    "leit_query/std",
+    "leit_score/std",
+    "leit_collect/std",
+]
 
 [dev-dependencies]
 proptest = { workspace = true }

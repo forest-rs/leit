@@ -1,14 +1,53 @@
 [workspace]
-resolver = "2"
 members = [
+    "crates/leit_benchmark",
+    "crates/leit_collect",
     "crates/leit_core",
+    "crates/leit_fusion",
+    "crates/leit_index",
+    "crates/leit_integration_tests",
+    "crates/leit_postings",
+    "crates/leit_query",
+    "crates/leit_score",
+    "crates/leit_text",
 ]
+resolver = "2"
 
 [workspace.package]
+version = "0.1.0"
+description = "A fast search engine library inspired by Lucene"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.88.0"
+authors = ["LeiT Contributors"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/forest-rs/leit"
+homepage = "https://github.com/forest-rs/leit"
+keywords = ["information-retrieval", "lucene", "search"]
+categories = ["algorithms", "data-structures", "database-implementations"]
+
+[workspace.dependencies]
+# Internal crate dependencies
+leit_benchmark = { path = "crates/leit_benchmark" }
+leit_collect = { default-features = false, path = "crates/leit_collect" }
+leit_core = { default-features = false, path = "crates/leit_core" }
+leit_fusion = { default-features = false, path = "crates/leit_fusion" }
+leit_index = { default-features = false, path = "crates/leit_index" }
+leit_integration_tests = { path = "crates/leit_integration_tests" }
+leit_postings = { default-features = false, path = "crates/leit_postings" }
+leit_query = { default-features = false, path = "crates/leit_query" }
+leit_score = { default-features = false, path = "crates/leit_score" }
+leit_text = { default-features = false, path = "crates/leit_text" }
+
+# Testing
+proptest = { version = "1.0" }
+
+# Math
+core_maths = { default-features = false, version = "0.1" }
+
+# Text normalization
+icu_casemap = { version = "1.5" }
+icu_locid = { default-features = false, version = "1.5" }
+unicode-normalization = { default-features = false, version = "0.1.25" }
 
 [workspace.lints]
 # LINEBENDER LINT SET - Cargo.toml - v8
@@ -63,5 +102,3 @@ clippy.wildcard_dependencies = "warn"
 # Prefer using `#[expect(...)]` instead of `#[allow(...)]`.
 # `#[expect(...)]` warns when the suppressed lint no longer fires.
 clippy.allow_attributes = "warn"
-
-[workspace.dependencies]

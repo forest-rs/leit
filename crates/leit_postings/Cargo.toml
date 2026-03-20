@@ -1,5 +1,5 @@
 [package]
-name = "leit_core"
+name = "leit_postings"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,9 +11,12 @@ description.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[dependencies]
+leit_core.workspace = true
+
 [features]
 default = ["std"]
-std = []
+std = ["leit_core/std"]
 
 [dev-dependencies]
 proptest = { workspace = true }

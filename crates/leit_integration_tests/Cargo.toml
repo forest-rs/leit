@@ -1,0 +1,41 @@
+[package]
+name = "leit_integration_tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Integration test suite for Leit search library"
+publish = false
+
+[features]
+default = ["std"]
+std = [
+    "leit_core/std",
+    "leit_score/std",
+    "leit_collect/std",
+    "leit_fusion/std",
+    "leit_query/std",
+    "leit_index/std",
+    "leit_text/std",
+    "leit_postings/std",
+]
+
+[dependencies]
+# Internal crates - all needed for integration tests
+leit_collect.workspace = true
+leit_core.workspace = true
+leit_fusion.workspace = true
+leit_index.workspace = true
+leit_postings.workspace = true
+leit_query.workspace = true
+leit_score.workspace = true
+leit_text.workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
