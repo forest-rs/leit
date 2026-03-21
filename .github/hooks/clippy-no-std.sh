@@ -15,6 +15,8 @@ mise exec -- cargo hack clippy \
     --exclude leit_index \
     --exclude leit_benchmark \
     --exclude leit_integration_tests \
+    --exclude basic_search \
+    --exclude explicit_execution \
     --workspace --locked --optional-deps --each-feature \
     --exclude-features std,default,icu \
     --target "$target" \

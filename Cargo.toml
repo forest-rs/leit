@@ -48,7 +48,7 @@ core_maths = { default-features = false, version = "0.1" }
 # Text normalization
 icu_casemap = { version = "2.1.1" }
 icu_locale_core = { default-features = false, version = "2.1.1" }
-unicode-normalization = { default-features = false, version = "0.1.25" }
+icu_normalizer = { version = "2.1.1" }
 
 [workspace.lints]
 # LINEBENDER LINT SET - Cargo.toml - v8

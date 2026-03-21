@@ -14,6 +14,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
@@ -22,8 +23,8 @@ use core::ops::Range;
 
 use icu_casemap::CaseMapper;
 use icu_locale_core::LanguageIdentifier;
+use icu_normalizer::ComposingNormalizer;
 use leit_core::FieldId;
-use unicode_normalization::UnicodeNormalization;
 
 /// A token produced by tokenization.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -235,7 +236,10 @@ impl Normalizer for UnicodeNormalizer {
     fn normalize(&self, text: &str) -> String {
         let canonicalized = apply_canonical_form(text, self.canonical_form);
         let case_mapped = apply_case_mapping(&canonicalized, self.case_mapping);
-        apply_canonical_form(&case_mapped, self.canonical_form)
+        match apply_canonical_form(&case_mapped, self.canonical_form) {
+            Cow::Borrowed(_) => case_mapped.into_owned(),
+            Cow::Owned(s) => s,
+        }
     }
 
     fn needs_normalize(&self, text: &str) -> bool {
@@ -257,33 +261,30 @@ impl Normalizer for UnicodeNormalizer {
     }
 }
 
-fn apply_canonical_form(text: &str, canonical_form: CanonicalForm) -> String {
+fn apply_canonical_form<'a>(text: &'a str, canonical_form: CanonicalForm) -> Cow<'a, str> {
     match canonical_form {
-        CanonicalForm::None => text.to_string(),
-        CanonicalForm::Nfc => text.nfc().collect(),
-        CanonicalForm::Nfkc => text.nfkc().collect(),
+        CanonicalForm::None => Cow::Borrowed(text),
+        CanonicalForm::Nfc => ComposingNormalizer::new_nfc().normalize(text),
+        CanonicalForm::Nfkc => ComposingNormalizer::new_nfkc().normalize(text),
     }
 }
 
-fn apply_case_mapping(text: &str, case_mapping: CaseMapping) -> String {
+fn apply_case_mapping<'a>(text: &'a str, case_mapping: CaseMapping) -> Cow<'a, str> {
     let case_mapper = CaseMapper::new();
     match case_mapping {
-        CaseMapping::None => text.to_string(),
-        CaseMapping::Lowercase => case_mapper
-            .lowercase_to_string(text, &LanguageIdentifier::UNKNOWN)
-            .into_owned(),
-        CaseMapping::Fold => case_mapper.fold_string(text).into_owned(),
+        CaseMapping::None => Cow::Borrowed(text),
+        CaseMapping::Lowercase => {
+            case_mapper.lowercase_to_string(text, &LanguageIdentifier::UNKNOWN)
+        }
+        CaseMapping::Fold => case_mapper.fold_string(text),
     }
 }
 
 fn needs_canonical_form(text: &str, canonical_form: CanonicalForm) -> bool {
-    use unicode_normalization::IsNormalized;
-    use unicode_normalization::is_nfc_quick;
-    use unicode_normalization::is_nfkc_quick;
     match canonical_form {
         CanonicalForm::None => false,
-        CanonicalForm::Nfc => is_nfc_quick(text.chars()) != IsNormalized::Yes,
-        CanonicalForm::Nfkc => is_nfkc_quick(text.chars()) != IsNormalized::Yes,
+        CanonicalForm::Nfc => !ComposingNormalizer::new_nfc().is_normalized(text),
+        CanonicalForm::Nfkc => !ComposingNormalizer::new_nfkc().is_normalized(text),
     }
 }
 
