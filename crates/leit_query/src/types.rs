@@ -221,8 +221,7 @@ pub enum ExtractionError {
     },
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for ExtractionError {}
+impl core::error::Error for ExtractionError {}
 
 impl fmt::Display for ExtractionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -702,8 +701,7 @@ pub enum QueryError {
     },
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for QueryError {}
+impl core::error::Error for QueryError {}
 
 impl fmt::Display for QueryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

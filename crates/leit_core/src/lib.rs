@@ -184,8 +184,7 @@ impl fmt::Display for NonFiniteScoreError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for NonFiniteScoreError {}
+impl core::error::Error for NonFiniteScoreError {}
 
 impl TryFrom<f32> for Score {
     type Error = NonFiniteScoreError;
@@ -326,8 +325,7 @@ pub enum CoreError {
     },
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for CoreError {}
+impl core::error::Error for CoreError {}
 
 impl fmt::Display for CoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -33,9 +33,8 @@ impl fmt::Display for IndexError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for IndexError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for IndexError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Query(err) => Some(err),
             _ => None,
@@ -89,5 +88,4 @@ impl fmt::Display for SegmentError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for SegmentError {}
+impl core::error::Error for SegmentError {}
