@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use icu_casemap::CaseMapper;
-use icu_locid::LanguageIdentifier;
+use icu_locale_core::LanguageIdentifier;
 use leit_core::FieldId;
 use unicode_normalization::UnicodeNormalization;
 
@@ -269,11 +269,10 @@ fn apply_case_mapping(text: &str, case_mapping: CaseMapping) -> String {
     let case_mapper = CaseMapper::new();
     match case_mapping {
         CaseMapping::None => text.to_string(),
-        CaseMapping::Lowercase => {
-            let langid = LanguageIdentifier::default();
-            case_mapper.lowercase_to_string(text, &langid)
-        }
-        CaseMapping::Fold => case_mapper.fold_string(text),
+        CaseMapping::Lowercase => case_mapper
+            .lowercase_to_string(text, &LanguageIdentifier::UNKNOWN)
+            .into_owned(),
+        CaseMapping::Fold => case_mapper.fold_string(text).into_owned(),
     }
 }
 
@@ -293,8 +292,7 @@ fn needs_case_mapping(text: &str, case_mapping: CaseMapping) -> bool {
     match case_mapping {
         CaseMapping::None => false,
         CaseMapping::Lowercase => {
-            let langid = LanguageIdentifier::default();
-            case_mapper.lowercase_to_string(text, &langid) != text
+            case_mapper.lowercase_to_string(text, &LanguageIdentifier::UNKNOWN) != text
         }
         CaseMapping::Fold => case_mapper.fold_string(text) != text,
     }
