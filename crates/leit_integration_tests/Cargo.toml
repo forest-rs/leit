@@ -7,7 +7,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Integration test suite for Leit search library"
+description = "Cross-crate integration tests for the Leit workspace"
 publish = false
 
 [features]
