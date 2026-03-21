@@ -7,7 +7,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Phase 1 wind-tunnel benchmark harness for Leit"
+description = "Deterministic benchmark harnesses for the Leit retrieval workspace"
 publish = false
 
 [dependencies]

@@ -7,7 +7,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description.workspace = true
+description = "Index construction and segment access for Leit"
 keywords.workspace = true
 categories.workspace = true
 
