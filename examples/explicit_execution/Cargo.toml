@@ -1,0 +1,22 @@
+[package]
+name = "explicit_execution"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Explicit planning and execution example for the Leit search stack"
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+leit_collect.workspace = true
+leit_core.workspace = true
+leit_index.workspace = true
+leit_text.workspace = true
+
+[lints]
+workspace = true

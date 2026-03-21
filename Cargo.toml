@@ -10,6 +10,8 @@ members = [
     "crates/leit_query",
     "crates/leit_score",
     "crates/leit_text",
+    "examples/basic_search",
+    "examples/explicit_execution",
 ]
 resolver = "2"
 
