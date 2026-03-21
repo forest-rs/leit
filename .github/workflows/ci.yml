@@ -22,6 +22,8 @@ env:
     -p leit_index
   # List of packages that don't support `no_std`.
   RUST_STD_ONLY_PKGS: >-
+    --exclude basic_search
+    --exclude explicit_execution
     --exclude leit_index
     --exclude leit_benchmark
     --exclude leit_integration_tests

@@ -1,0 +1,21 @@
+[package]
+name = "basic_search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Minimal end-to-end example for the Leit search stack"
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+leit_core = { features = ["std"], workspace = true }
+leit_index = { features = ["std"], workspace = true }
+leit_text = { features = ["std"], workspace = true }
+
+[lints]
+workspace = true
