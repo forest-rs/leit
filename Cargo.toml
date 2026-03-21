@@ -45,8 +45,8 @@ proptest = { version = "1.0" }
 core_maths = { default-features = false, version = "0.1" }
 
 # Text normalization
-icu_casemap = { version = "1.5" }
-icu_locid = { default-features = false, version = "1.5" }
+icu_casemap = { version = "2.1.1" }
+icu_locale_core = { default-features = false, version = "2.1.1" }
 unicode-normalization = { default-features = false, version = "0.1.25" }
 
 [workspace.lints]
