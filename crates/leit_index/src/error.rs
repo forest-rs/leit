@@ -14,6 +14,8 @@ pub enum IndexError {
     DuplicateDocument(u32),
     /// A field was indexed without a registered analyzer.
     MissingAnalyzer(leit_core::FieldId),
+    /// Execution required scores but no scorer was supplied.
+    MissingScorer,
     /// A size or offset does not fit in the on-disk format.
     ValueOutOfRange,
     /// Query planning failed.
@@ -27,6 +29,7 @@ impl fmt::Display for IndexError {
             Self::MissingAnalyzer(field) => {
                 write!(f, "missing analyzer for field {}", field.as_u32())
             }
+            Self::MissingScorer => write!(f, "execution requires a scorer but none was provided"),
             Self::ValueOutOfRange => write!(f, "value out of range for on-disk format"),
             Self::Query(err) => write!(f, "query error: {err}"),
         }

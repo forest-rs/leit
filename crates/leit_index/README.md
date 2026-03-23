@@ -8,6 +8,7 @@ This crate provides:
 - `InMemoryIndex` to hold immutable retrieval data
 - `SegmentView` to validate and read serialized segments from `&[u8]`
 - `ExecutionWorkspace` to plan and execute queries with reusable scratch state
+- `Option<SearchScorer>` to choose scored or unscored execution
 - `SearchScorer` to choose the ranking policy for execution
 
 The public surface stays small. Query planning lives in `leit-query`, but most
@@ -17,13 +18,22 @@ callers can stay at the `leit-index` layer by planning and executing through an
 Typical Phase 1 flow:
 
 ```rust
-use leit_collect::TopKCollector;
+use leit_collect::{CountCollector, TopKCollector};
 use leit_index::{ExecutionWorkspace, SearchScorer};
 
 let mut workspace = ExecutionWorkspace::new();
 let plan = workspace.plan(&index, "title:rust OR body:retrieval")?;
-let mut collector = TopKCollector::new(10);
-let hits = workspace.execute(&index, &plan, SearchScorer::bm25(), &mut collector)?;
+let mut top_k = TopKCollector::new(10);
+let mut count = CountCollector::new();
+let mut collectors: [&mut dyn leit_collect::Collector<u32>; 2] = [&mut top_k, &mut count];
+workspace.execute(
+    &index,
+    &plan,
+    Some(SearchScorer::bm25()),
+    &mut collectors,
+)?;
+let hits = top_k.finish();
+let count = count.finish();
 ```
 
 This crate is structured for `no_std + alloc` builds, with `std` enabled by

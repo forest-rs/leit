@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::{AddAssign, MulAssign};
 
-use leit_collect::Collector;
+use leit_collect::CollectorSink;
 use leit_core::{FieldId, QueryNodeId, Score, ScoredHit, TermId};
 use leit_query::{ExecutionPlan, FieldRegistry, QueryNode, QueryProgram, TermDictionary};
 use leit_text::FieldAnalyzers;
@@ -163,6 +163,13 @@ impl InMemoryIndex {
         self.evaluate_node(plan.program.root(), &plan.program, scorer, stats)
     }
 
+    pub(crate) fn evaluate_matches(
+        &self,
+        plan: &ExecutionPlan,
+    ) -> Result<BTreeSet<u32>, IndexError> {
+        self.evaluate_matches_node(plan.program.root(), &plan.program)
+    }
+
     fn evaluate_node(
         &self,
         node_id: QueryNodeId,
@@ -254,6 +261,58 @@ impl InMemoryIndex {
         }
     }
 
+    fn evaluate_matches_node(
+        &self,
+        node_id: QueryNodeId,
+        program: &QueryProgram,
+    ) -> Result<BTreeSet<u32>, IndexError> {
+        let Some(node) = program.get(node_id) else {
+            return Ok(BTreeSet::new());
+        };
+
+        match node {
+            QueryNode::Term { term, .. } => {
+                let mut matches = BTreeSet::new();
+                if let Some(postings) = self.postings.get(term) {
+                    for posting in postings {
+                        matches.insert(posting.doc_id);
+                    }
+                }
+                Ok(matches)
+            }
+            QueryNode::Or { children, .. } => {
+                let mut matches = BTreeSet::new();
+                for child in children {
+                    matches.extend(self.evaluate_matches_node(*child, program)?);
+                }
+                Ok(matches)
+            }
+            QueryNode::And { children, .. } => {
+                let mut iter = children.iter();
+                let Some(first) = iter.next() else {
+                    return Ok(BTreeSet::new());
+                };
+                let mut matches = self.evaluate_matches_node(*first, program)?;
+                for child in iter {
+                    let child_matches = self.evaluate_matches_node(*child, program)?;
+                    matches.retain(|doc_id| child_matches.contains(doc_id));
+                }
+                Ok(matches)
+            }
+            QueryNode::Not { child } => {
+                let child_matches = self.evaluate_matches_node(*child, program)?;
+                let mut matches = BTreeSet::new();
+                for doc_id in &self.documents {
+                    if !child_matches.contains(doc_id) {
+                        matches.insert(*doc_id);
+                    }
+                }
+                Ok(matches)
+            }
+            QueryNode::ConstantScore { child, .. } => self.evaluate_matches_node(*child, program),
+        }
+    }
+
     fn score_posting(
         &self,
         posting: &PostingEntry,
@@ -317,45 +376,73 @@ impl InMemoryIndex {
         EvalResult::from_scores(results)
     }
 
-    pub(crate) fn collect_result<C: Collector<u32>>(
+    pub(crate) fn collect_result<S>(
         result: EvalResult,
-        collector: &mut C,
+        collectors: &mut S,
         stats: &mut ExecutionStats,
-    ) {
+        allow_pruning: bool,
+    ) where
+        S: CollectorSink<u32> + ?Sized,
+    {
         for doc_id in result.matches {
             let score = result.scores.get(&doc_id).copied().unwrap_or(Score::ZERO);
-            if collector.can_skip(score) {
+            if allow_pruning && collectors.can_skip(score) {
                 continue;
             }
-            collector.collect(ScoredHit::new(doc_id, score));
+            collectors.collect_scored(ScoredHit::new(doc_id, score));
             stats.collected_hits = stats.collected_hits.saturating_add(1);
         }
     }
 
-    pub(crate) fn try_execute_root<C: Collector<u32>>(
+    pub(crate) fn collect_matches<S>(
+        matches: BTreeSet<u32>,
+        collectors: &mut S,
+        stats: &mut ExecutionStats,
+    ) where
+        S: CollectorSink<u32> + ?Sized,
+    {
+        for doc_id in matches {
+            collectors.collect_doc(doc_id);
+            stats.collected_hits = stats.collected_hits.saturating_add(1);
+        }
+    }
+
+    pub(crate) fn try_execute_root<S>(
         &self,
         plan: &ExecutionPlan,
         scoring: SearchScorer,
-        collector: &mut C,
+        collectors: &mut S,
         stats: &mut ExecutionStats,
-    ) -> Result<bool, IndexError> {
+        allow_pruning: bool,
+    ) -> Result<bool, IndexError>
+    where
+        S: CollectorSink<u32> + ?Sized,
+    {
         let Some(node) = plan.program.get(plan.program.root()) else {
             return Ok(true);
         };
         match node {
             QueryNode::Term { field, term, boost } => {
-                self.collect_term(*field, *term, *boost, scoring, collector, stats);
+                self.collect_term(
+                    *field,
+                    *term,
+                    *boost,
+                    scoring,
+                    collectors,
+                    stats,
+                    allow_pruning,
+                );
                 Ok(true)
             }
             QueryNode::ConstantScore { child, score } => {
                 let mut result = self.evaluate_node(*child, &plan.program, scoring, stats)?;
                 result.scores.clear();
                 let score = Score::try_from(*score).unwrap_or(Score::ZERO);
-                if collector.can_skip(score) {
+                if allow_pruning && collectors.can_skip(score) {
                     return Ok(true);
                 }
                 for doc_id in result.matches {
-                    collector.collect(ScoredHit::new(doc_id, score));
+                    collectors.collect_scored(ScoredHit::new(doc_id, score));
                     stats.collected_hits = stats.collected_hits.saturating_add(1);
                 }
                 Ok(true)
@@ -364,15 +451,44 @@ impl InMemoryIndex {
         }
     }
 
-    fn collect_term<C: Collector<u32>>(
+    pub(crate) fn try_execute_root_unscored<S>(
+        &self,
+        plan: &ExecutionPlan,
+        collectors: &mut S,
+        stats: &mut ExecutionStats,
+    ) -> Result<bool, IndexError>
+    where
+        S: CollectorSink<u32> + ?Sized,
+    {
+        let Some(node) = plan.program.get(plan.program.root()) else {
+            return Ok(true);
+        };
+        match node {
+            QueryNode::Term { term, .. } => {
+                self.collect_term_docs(*term, collectors, stats);
+                Ok(true)
+            }
+            QueryNode::ConstantScore { child, .. } => {
+                let matches = self.evaluate_matches_node(*child, &plan.program)?;
+                Self::collect_matches(matches, collectors, stats);
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn collect_term<S>(
         &self,
         field: FieldId,
         term: TermId,
         boost: f32,
         scoring: SearchScorer,
-        collector: &mut C,
+        collectors: &mut S,
         stats: &mut ExecutionStats,
-    ) {
+        allow_pruning: bool,
+    ) where
+        S: CollectorSink<u32> + ?Sized,
+    {
         let Some(postings) = self.postings.get(&term) else {
             return;
         };
@@ -387,8 +503,9 @@ impl InMemoryIndex {
         for block in blocks {
             // Block-max pruning is only valid for non-negative boosts.
             // Negative boost inverts the upper bound, making it a lower bound.
-            if boost >= 0.0
-                && let Some(threshold) = collector.threshold()
+            if allow_pruning
+                && boost >= 0.0
+                && let Some(threshold) = collectors.min_competitive_score()
             {
                 let bound = Self::block_upper_bound(
                     *block,
@@ -416,12 +533,25 @@ impl InMemoryIndex {
                     doc_count,
                     doc_frequency,
                 );
-                if collector.can_skip(score) {
+                if allow_pruning && collectors.can_skip(score) {
                     continue;
                 }
-                collector.collect(ScoredHit::new(posting.doc_id, score));
+                collectors.collect_scored(ScoredHit::new(posting.doc_id, score));
                 stats.collected_hits = stats.collected_hits.saturating_add(1);
             }
+        }
+    }
+
+    fn collect_term_docs<S>(&self, term: TermId, collectors: &mut S, stats: &mut ExecutionStats)
+    where
+        S: CollectorSink<u32> + ?Sized,
+    {
+        let Some(postings) = self.postings.get(&term) else {
+            return;
+        };
+        for posting in postings {
+            collectors.collect_doc(posting.doc_id);
+            stats.collected_hits = stats.collected_hits.saturating_add(1);
         }
     }
 

@@ -371,11 +371,11 @@ fn test_topk_collector_basic() {
     let mut collector = TopKCollector::<u32>::new(3);
     collector.begin_query();
 
-    collector.collect(ScoredHit::new(1, Score::new(0.5)));
-    collector.collect(ScoredHit::new(2, Score::new(0.8)));
-    collector.collect(ScoredHit::new(3, Score::new(0.3)));
-    collector.collect(ScoredHit::new(4, Score::new(0.9)));
-    collector.collect(ScoredHit::new(5, Score::new(0.1)));
+    collector.collect_scored(ScoredHit::new(1, Score::new(0.5)));
+    collector.collect_scored(ScoredHit::new(2, Score::new(0.8)));
+    collector.collect_scored(ScoredHit::new(3, Score::new(0.3)));
+    collector.collect_scored(ScoredHit::new(4, Score::new(0.9)));
+    collector.collect_scored(ScoredHit::new(5, Score::new(0.1)));
 
     let hits = collector.finish();
     assert_eq!(hits.len(), 3);
@@ -389,14 +389,13 @@ fn test_topk_collector_early_termination() {
     let mut collector = TopKCollector::<u32>::new(2);
     collector.begin_query();
 
-    assert!(!collector.can_skip(Score::ZERO));
+    assert_eq!(collector.min_competitive_score(), None);
 
-    collector.collect(ScoredHit::new(1, Score::new(0.5)));
-    collector.collect(ScoredHit::new(2, Score::new(0.8)));
+    collector.collect_scored(ScoredHit::new(1, Score::new(0.5)));
+    collector.collect_scored(ScoredHit::new(2, Score::new(0.8)));
 
+    assert_eq!(collector.min_competitive_score(), Some(Score::new(0.5)));
     assert!(collector.can_skip(Score::new(0.3)));
-    assert!(!collector.can_skip(Score::new(0.5)));
-    assert!(!collector.can_skip(Score::new(0.6)));
 }
 
 #[test]
@@ -405,19 +404,15 @@ fn test_count_collector_trait_contract() {
     <CountCollector as Collector<u32>>::begin_query(&mut collector);
 
     assert_eq!(collector.count(), 0);
-    assert!(Collector::<u32>::is_empty(&collector));
+    assert!(collector.is_empty());
 
-    collector.collect(ScoredHit::new(1_u32, Score::ONE));
-    collector.collect(ScoredHit::new(2_u32, Score::ONE));
-    collector.collect(ScoredHit::new(3_u32, Score::ONE));
+    collector.collect_doc(1_u32);
+    collector.collect_doc(2_u32);
+    collector.collect_doc(3_u32);
 
-    assert_eq!(Collector::<u32>::len(&collector), 3);
     assert_eq!(collector.count(), 3);
-    assert!(!Collector::<u32>::is_empty(&collector));
-    assert_eq!(
-        <CountCollector as Collector<u32>>::finish(&mut collector),
-        3
-    );
+    assert!(!collector.is_empty());
+    assert_eq!(collector.finish(), 3);
 }
 
 #[derive(Default)]

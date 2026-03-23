@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use leit_collect::{Collector, TopKCollector};
+use leit_collect::{CollectorSink, TopKCollector};
 use leit_core::{FieldId, Score, ScoredHit, ScratchSpace};
 use leit_query::{ExecutionPlan, Planner, PlannerScratch, PlanningContext};
 use leit_score::{Bm25FScorer, Bm25Scorer, FieldStats, Scorer, ScoringStats};
@@ -118,21 +118,43 @@ impl ExecutionWorkspace {
             .map_err(IndexError::Query)
     }
 
-    /// Execute a planned query with an explicit scorer and collector.
-    pub fn execute<C: Collector<u32>>(
+    /// Execute a planned query with an optional scorer and collectors.
+    pub fn execute<S>(
         &mut self,
         index: &InMemoryIndex,
         plan: &ExecutionPlan,
-        scorer: SearchScorer,
-        collector: &mut C,
-    ) -> Result<C::Output, IndexError> {
+        scorer: Option<SearchScorer>,
+        collectors: &mut S,
+    ) -> Result<(), IndexError>
+    where
+        S: CollectorSink<u32> + ?Sized,
+    {
         self.last_stats = ExecutionStats::default();
-        collector.begin_query();
-        if !index.try_execute_root(plan, scorer, collector, &mut self.last_stats)? {
-            let result = index.evaluate_plan(plan, scorer, &mut self.last_stats)?;
-            InMemoryIndex::collect_result(result, collector, &mut self.last_stats);
+        collectors.begin_query();
+        let allow_pruning = !collectors.requires_exhaustive_matches();
+
+        if collectors.needs_scores() {
+            let scorer = scorer.ok_or(IndexError::MissingScorer)?;
+            if !index.try_execute_root(
+                plan,
+                scorer,
+                collectors,
+                &mut self.last_stats,
+                allow_pruning,
+            )? {
+                let result = index.evaluate_plan(plan, scorer, &mut self.last_stats)?;
+                InMemoryIndex::collect_result(
+                    result,
+                    collectors,
+                    &mut self.last_stats,
+                    allow_pruning,
+                );
+            }
+        } else if !index.try_execute_root_unscored(plan, collectors, &mut self.last_stats)? {
+            let matches = index.evaluate_matches(plan)?;
+            InMemoryIndex::collect_matches(matches, collectors, &mut self.last_stats);
         }
-        Ok(collector.finish())
+        Ok(())
     }
 
     /// Plan and execute a textual query with an explicit scorer.
@@ -145,7 +167,8 @@ impl ExecutionWorkspace {
     ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
         let plan = self.plan(index, query)?;
         let mut collector = TopKCollector::new(limit);
-        self.execute(index, &plan, scorer, &mut collector)
+        self.execute(index, &plan, Some(scorer), &mut collector)?;
+        Ok(collector.finish())
     }
 }
 

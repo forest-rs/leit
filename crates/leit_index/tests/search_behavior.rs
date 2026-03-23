@@ -5,6 +5,7 @@
 
 use std::collections::BTreeSet;
 
+use leit_collect::{CountCollector, TopKCollector};
 use leit_core::FieldId;
 use leit_index::{
     ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer,
@@ -292,6 +293,114 @@ fn term_search_skips_noncompetitive_blocks_once_threshold_rises() {
 }
 
 #[test]
+fn count_uses_unscored_execution_path() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha alpha alpha alpha")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), "alpha alpha alpha")])
+        .expect("document should index");
+    builder
+        .index_document(
+            3,
+            &[(
+                FieldId::new(1),
+                "alpha noise noise noise noise noise noise noise noise noise",
+            )],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let mut workspace = ExecutionWorkspace::new();
+    let plan = workspace
+        .plan(&index, "alpha")
+        .expect("plan should succeed");
+    let mut counter = CountCollector::new();
+    workspace
+        .execute(&index, &plan, None, &mut counter)
+        .expect("count should succeed");
+    let count = counter.finish();
+    let stats = workspace.last_stats();
+
+    assert_eq!(count, 3);
+    assert_eq!(stats.scored_postings, 0);
+    assert_eq!(stats.skipped_blocks, 0);
+    assert_eq!(stats.collected_hits, 3);
+}
+
+#[test]
+fn multi_collector_returns_topk_and_count_from_one_execution() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha alpha alpha alpha")])
+        .expect("document should index");
+    builder
+        .index_document(2, &[(FieldId::new(1), "alpha alpha alpha")])
+        .expect("document should index");
+    builder
+        .index_document(
+            3,
+            &[(
+                FieldId::new(1),
+                "alpha noise noise noise noise noise noise noise noise noise",
+            )],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            4,
+            &[(
+                FieldId::new(1),
+                "alpha noise noise noise noise noise noise noise noise noise noise noise",
+            )],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let mut workspace = ExecutionWorkspace::new();
+    let plan = workspace
+        .plan(&index, "alpha")
+        .expect("plan should succeed");
+    let mut top_k = TopKCollector::new(1);
+    let mut count = CountCollector::new();
+    let mut collectors: [&mut dyn leit_collect::Collector<u32>; 2] = [&mut top_k, &mut count];
+    workspace
+        .execute(&index, &plan, Some(SearchScorer::bm25()), &mut collectors)
+        .expect("multi-collector execution should succeed");
+    let hits = top_k.finish();
+    let count = count.finish();
+    let stats = workspace.last_stats();
+
+    assert_eq!(count, 4);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, 1);
+    assert_eq!(stats.scored_postings, 4);
+    assert_eq!(stats.skipped_blocks, 0);
+    assert_eq!(stats.collected_hits, 4);
+}
+
+#[test]
+fn score_aware_collectors_require_a_scorer() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha beta")])
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let mut workspace = ExecutionWorkspace::new();
+    let plan = workspace
+        .plan(&index, "alpha")
+        .expect("plan should succeed");
+    let mut collector = TopKCollector::new(5);
+    let error = workspace
+        .execute(&index, &plan, None, &mut collector)
+        .expect_err("score-aware collector should fail without scorer");
+
+    assert_eq!(error, leit_index::IndexError::MissingScorer);
+}
+
+#[test]
 fn term_search_keeps_later_equal_score_tie_break_winner() {
     let mut builder = InMemoryIndexBuilder::new(test_analyzers());
     builder
@@ -326,10 +435,11 @@ fn lower_level_planner_produces_empty_plan_for_unknown_term() {
 
     // Execute the plan — it should produce zero results
     let mut workspace = ExecutionWorkspace::new();
-    let mut collector = leit_collect::TopKCollector::new(10);
-    let results = workspace
-        .execute(&index, &plan, SearchScorer::bm25(), &mut collector)
+    let mut collector = TopKCollector::new(10);
+    workspace
+        .execute(&index, &plan, Some(SearchScorer::bm25()), &mut collector)
         .expect("empty plan should execute");
+    let results = collector.finish();
     assert!(results.is_empty(), "unknown term should match no documents");
 }
 

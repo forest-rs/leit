@@ -8,6 +8,7 @@
 //! Phase 1 keeps this crate concrete:
 //! - `InMemoryIndex` builds a small in-memory inverted index
 //! - `ExecutionWorkspace` plans and executes queries against that index
+//! - `Option<SearchScorer>` chooses scored or unscored execution per query
 //! - `SearchScorer` makes ranking policy explicit at execution time
 //! - `SegmentView` opens and validates a borrowed segment from `&[u8]`
 //!

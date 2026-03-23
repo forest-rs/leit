@@ -105,8 +105,9 @@ fn execute_plan(
     let mut workspace = ExecutionWorkspace::new();
     let mut collector = TopKCollector::new(limit);
     workspace
-        .execute(index, plan, SearchScorer::bm25(), &mut collector)
-        .expect("plan should execute")
+        .execute(index, plan, Some(SearchScorer::bm25()), &mut collector)
+        .expect("plan should execute");
+    collector.finish()
 }
 
 #[test]
