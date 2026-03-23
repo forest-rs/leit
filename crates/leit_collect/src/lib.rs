@@ -80,6 +80,14 @@ pub trait CollectorSink<Id: EntityId> {
     }
 }
 
+/// Build a grouped collector array without repeating the full trait-object type.
+#[must_use]
+pub fn collectors<Id: EntityId, const N: usize>(
+    collectors: [&mut dyn Collector<Id>; N],
+) -> [&mut dyn Collector<Id>; N] {
+    collectors
+}
+
 impl<Id, C> CollectorSink<Id> for C
 where
     Id: EntityId,
@@ -174,19 +182,18 @@ fn aggregate_min_competitive_score<Id: EntityId>(
 ) -> Option<Score> {
     let mut threshold = None;
     for collector in collectors {
-        if collector.needs_scores() {
-            threshold = max_score_option(threshold, Some(collector.min_competitive_score()?));
+        if !collector.needs_scores() {
+            continue;
         }
-    }
-    threshold
-}
 
-fn max_score_option(lhs: Option<Score>, rhs: Option<Score>) -> Option<Score> {
-    match (lhs, rhs) {
-        (Some(lhs), Some(rhs)) => Some(if lhs >= rhs { lhs } else { rhs }),
-        (Some(score), None) | (None, Some(score)) => Some(score),
-        (None, None) => None,
+        let collector_threshold = collector.min_competitive_score()?;
+        threshold = Some(match threshold {
+            Some(current) if current <= collector_threshold => current,
+            _ => collector_threshold,
+        });
     }
+
+    threshold
 }
 
 /// A collector that maintains the top-k hits by score.

@@ -3,7 +3,7 @@
 
 //! Explicit planning and execution example for the Leit stack.
 
-use leit_collect::{CountCollector, TopKCollector};
+use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::{FieldId, ScoredHit};
 use leit_index::{ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, SearchScorer};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     // One planned query can feed multiple collectors in one execution.
     let mut top_k = TopKCollector::new(2);
     let mut count = CountCollector::new();
-    let mut collectors: [&mut dyn leit_collect::Collector<u32>; 2] = [&mut top_k, &mut count];
+    let mut collectors = collectors([&mut top_k, &mut count]);
     workspace.execute(&index, &plan, Some(SearchScorer::bm25()), &mut collectors)?;
     let hits = top_k.finish();
     let count = count.finish();

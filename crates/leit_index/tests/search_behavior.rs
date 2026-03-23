@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use leit_collect::{CountCollector, TopKCollector};
+use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::FieldId;
 use leit_index::{
     ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer,
@@ -364,7 +364,7 @@ fn multi_collector_returns_topk_and_count_from_one_execution() {
         .expect("plan should succeed");
     let mut top_k = TopKCollector::new(1);
     let mut count = CountCollector::new();
-    let mut collectors: [&mut dyn leit_collect::Collector<u32>; 2] = [&mut top_k, &mut count];
+    let mut collectors = collectors([&mut top_k, &mut count]);
     workspace
         .execute(&index, &plan, Some(SearchScorer::bm25()), &mut collectors)
         .expect("multi-collector execution should succeed");
@@ -378,6 +378,64 @@ fn multi_collector_returns_topk_and_count_from_one_execution() {
     assert_eq!(stats.scored_postings, 4);
     assert_eq!(stats.skipped_blocks, 0);
     assert_eq!(stats.collected_hits, 4);
+}
+
+#[test]
+fn multi_collector_uses_lowest_score_threshold_for_shared_pruning() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "alpha alpha alpha alpha alpha")])
+        .expect("document should index");
+    builder
+        .index_document(
+            2,
+            &[(
+                FieldId::new(1),
+                "alpha noise noise noise noise noise noise noise",
+            )],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            3,
+            &[(FieldId::new(1), "alpha alpha noise noise noise noise noise")],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            4,
+            &[(
+                FieldId::new(1),
+                "alpha alpha alpha noise noise noise noise noise",
+            )],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let mut workspace = ExecutionWorkspace::new();
+    let plan = workspace
+        .plan(&index, "alpha")
+        .expect("plan should succeed");
+
+    let mut top1 = TopKCollector::new(1);
+    let mut top3 = TopKCollector::new(3);
+    let mut collectors = collectors([&mut top1, &mut top3]);
+
+    workspace
+        .execute(&index, &plan, Some(SearchScorer::bm25()), &mut collectors)
+        .expect("execution should succeed");
+
+    let top1_hits = top1.finish();
+    let top3_hits = top3.finish();
+
+    assert_eq!(top1_hits.len(), 1);
+    assert_eq!(top3_hits.len(), 3);
+
+    let top3_ids: BTreeSet<_> = top3_hits.into_iter().map(|hit| hit.id).collect();
+    assert!(
+        top3_ids.contains(&4),
+        "later medium-scoring hit must not be pruned away",
+    );
 }
 
 #[test]

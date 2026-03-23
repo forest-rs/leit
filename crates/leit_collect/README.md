@@ -6,6 +6,7 @@ This crate provides:
 
 - `Collector` as the result collection trait
 - `CollectorSink` as the execution-facing abstraction for one collector or many
+- `collectors(...)` to build grouped collector arrays without noisy type annotations
 - collector-level `needs_scores` and `requires_exhaustive_matches` flags
 - `TopKCollector` for bounded top-k collection with skip checks
 - `CountCollector` for counting matching hits

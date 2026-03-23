@@ -131,6 +131,8 @@ impl ExecutionWorkspace {
     {
         self.last_stats = ExecutionStats::default();
         collectors.begin_query();
+        // Pruning is only safe when every active collector is non-exhaustive.
+        // If any collector needs all matches, shared execution must visit them all.
         let allow_pruning = !collectors.requires_exhaustive_matches();
 
         if collectors.needs_scores() {

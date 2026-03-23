@@ -18,14 +18,14 @@ callers can stay at the `leit-index` layer by planning and executing through an
 Typical Phase 1 flow:
 
 ```rust
-use leit_collect::{CountCollector, TopKCollector};
+use leit_collect::{collectors, CountCollector, TopKCollector};
 use leit_index::{ExecutionWorkspace, SearchScorer};
 
 let mut workspace = ExecutionWorkspace::new();
 let plan = workspace.plan(&index, "title:rust OR body:retrieval")?;
 let mut top_k = TopKCollector::new(10);
 let mut count = CountCollector::new();
-let mut collectors: [&mut dyn leit_collect::Collector<u32>; 2] = [&mut top_k, &mut count];
+let mut collectors = collectors([&mut top_k, &mut count]);
 workspace.execute(
     &index,
     &plan,
