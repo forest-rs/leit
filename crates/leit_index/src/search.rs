@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use leit_collect::{CollectorSink, TopKCollector};
+use leit_collect::{Collector, TopKCollector};
 use leit_core::{FieldId, Score, ScoredHit, ScratchSpace};
 use leit_query::{ExecutionPlan, Planner, PlannerScratch, PlanningContext};
 use leit_score::{Bm25FScorer, Bm25Scorer, FieldStats, Scorer, ScoringStats};
@@ -127,7 +127,7 @@ impl ExecutionWorkspace {
         collectors: &mut S,
     ) -> Result<(), IndexError>
     where
-        S: CollectorSink<u32> + ?Sized,
+        S: Collector<u32> + ?Sized,
     {
         self.last_stats = ExecutionStats::default();
         collectors.begin_query();

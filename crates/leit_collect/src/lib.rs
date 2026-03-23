@@ -45,33 +45,6 @@ pub trait Collector<Id: EntityId> {
     fn min_competitive_score(&self) -> Option<Score> {
         None
     }
-}
-
-/// Aggregated collection surface for one collector or many collectors.
-pub trait CollectorSink<Id: EntityId> {
-    /// Prepare the sink for a new query.
-    fn begin_query(&mut self);
-
-    /// Whether any collector in this sink needs scores.
-    fn needs_scores(&self) -> bool {
-        false
-    }
-
-    /// Whether any collector in this sink requires exhaustive matches.
-    fn requires_exhaustive_matches(&self) -> bool {
-        true
-    }
-
-    /// Collect a matching document without a score.
-    fn collect_doc(&mut self, doc: Id);
-
-    /// Collect a scored hit.
-    fn collect_scored(&mut self, hit: ScoredHit<Id>);
-
-    /// Return the current competitive threshold for this sink, if any.
-    fn min_competitive_score(&self) -> Option<Score> {
-        None
-    }
 
     /// Check if a hit with this exact score can be skipped.
     fn can_skip(&self, score: Score) -> bool {
@@ -86,36 +59,6 @@ pub fn collectors<Id: EntityId, const N: usize>(
     collectors: [&mut dyn Collector<Id>; N],
 ) -> [&mut dyn Collector<Id>; N] {
     collectors
-}
-
-impl<Id, C> CollectorSink<Id> for C
-where
-    Id: EntityId,
-    C: Collector<Id>,
-{
-    fn begin_query(&mut self) {
-        Collector::begin_query(self);
-    }
-
-    fn needs_scores(&self) -> bool {
-        Collector::needs_scores(self)
-    }
-
-    fn requires_exhaustive_matches(&self) -> bool {
-        Collector::requires_exhaustive_matches(self)
-    }
-
-    fn collect_doc(&mut self, doc: Id) {
-        Collector::collect_doc(self, doc);
-    }
-
-    fn collect_scored(&mut self, hit: ScoredHit<Id>) {
-        Collector::collect_scored(self, hit);
-    }
-
-    fn min_competitive_score(&self) -> Option<Score> {
-        Collector::min_competitive_score(self)
-    }
 }
 
 impl<Id: EntityId> Collector<Id> for [&mut dyn Collector<Id>] {

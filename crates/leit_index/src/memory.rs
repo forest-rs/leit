@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::{AddAssign, MulAssign};
 
-use leit_collect::CollectorSink;
+use leit_collect::Collector;
 use leit_core::{FieldId, QueryNodeId, Score, ScoredHit, TermId};
 use leit_query::{ExecutionPlan, FieldRegistry, QueryNode, QueryProgram, TermDictionary};
 use leit_text::FieldAnalyzers;
@@ -382,7 +382,7 @@ impl InMemoryIndex {
         stats: &mut ExecutionStats,
         allow_pruning: bool,
     ) where
-        S: CollectorSink<u32> + ?Sized,
+        S: Collector<u32> + ?Sized,
     {
         for doc_id in result.matches {
             let score = result.scores.get(&doc_id).copied().unwrap_or(Score::ZERO);
@@ -399,7 +399,7 @@ impl InMemoryIndex {
         collectors: &mut S,
         stats: &mut ExecutionStats,
     ) where
-        S: CollectorSink<u32> + ?Sized,
+        S: Collector<u32> + ?Sized,
     {
         for doc_id in matches {
             collectors.collect_doc(doc_id);
@@ -416,7 +416,7 @@ impl InMemoryIndex {
         allow_pruning: bool,
     ) -> Result<bool, IndexError>
     where
-        S: CollectorSink<u32> + ?Sized,
+        S: Collector<u32> + ?Sized,
     {
         let Some(node) = plan.program.get(plan.program.root()) else {
             return Ok(true);
@@ -458,7 +458,7 @@ impl InMemoryIndex {
         stats: &mut ExecutionStats,
     ) -> Result<bool, IndexError>
     where
-        S: CollectorSink<u32> + ?Sized,
+        S: Collector<u32> + ?Sized,
     {
         let Some(node) = plan.program.get(plan.program.root()) else {
             return Ok(true);
@@ -487,7 +487,7 @@ impl InMemoryIndex {
         stats: &mut ExecutionStats,
         allow_pruning: bool,
     ) where
-        S: CollectorSink<u32> + ?Sized,
+        S: Collector<u32> + ?Sized,
     {
         let Some(postings) = self.postings.get(&term) else {
             return;
@@ -544,7 +544,7 @@ impl InMemoryIndex {
 
     fn collect_term_docs<S>(&self, term: TermId, collectors: &mut S, stats: &mut ExecutionStats)
     where
-        S: CollectorSink<u32> + ?Sized,
+        S: Collector<u32> + ?Sized,
     {
         let Some(postings) = self.postings.get(&term) else {
             return;
