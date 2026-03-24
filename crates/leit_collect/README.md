@@ -12,8 +12,8 @@ This crate provides:
 - object-safe collectors so one execution can drive any number of collectors
 
 `TopKCollector` keeps the current minimum score so query execution can skip
-hits that cannot enter the result set. `CountCollector` collects doc IDs
-without requiring scores.
+hits that cannot enter the result set. `CountCollector` collects matching
+hits without requiring scores.
 
 This crate works in `no_std + alloc`. `std` is enabled by default.
 

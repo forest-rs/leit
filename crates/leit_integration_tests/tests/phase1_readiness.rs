@@ -406,9 +406,9 @@ fn test_count_collector_trait_contract() {
     assert_eq!(collector.count(), 0);
     assert!(collector.is_empty());
 
-    collector.collect_doc(1_u32);
-    collector.collect_doc(2_u32);
-    collector.collect_doc(3_u32);
+    collector.collect_match(1_u32);
+    collector.collect_match(2_u32);
+    collector.collect_match(3_u32);
 
     assert_eq!(collector.count(), 3);
     assert!(!collector.is_empty());

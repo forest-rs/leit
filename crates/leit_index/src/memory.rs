@@ -402,7 +402,7 @@ impl InMemoryIndex {
         S: Collector<u32> + ?Sized,
     {
         for doc_id in matches {
-            collectors.collect_doc(doc_id);
+            collectors.collect_match(doc_id);
             stats.collected_hits = stats.collected_hits.saturating_add(1);
         }
     }
@@ -550,7 +550,7 @@ impl InMemoryIndex {
             return;
         };
         for posting in postings {
-            collectors.collect_doc(posting.doc_id);
+            collectors.collect_match(posting.doc_id);
             stats.collected_hits = stats.collected_hits.saturating_add(1);
         }
     }

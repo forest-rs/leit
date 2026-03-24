@@ -26,19 +26,21 @@ pub trait Collector<Id: EntityId> {
         false
     }
 
-    /// Whether this collector must observe every matching document.
+    /// Whether this collector must observe every matching entity.
     fn requires_exhaustive_matches(&self) -> bool {
         true
     }
 
-    /// Collect a matching document without a score.
-    fn collect_doc(&mut self, doc: Id);
+    /// Collect a matching entity identifier without a score.
+    ///
+    /// This is used by execution paths where the collector does not require scoring.
+    fn collect_match(&mut self, id: Id);
 
     /// Collect a scored hit.
     ///
-    /// The default implementation drops the score and forwards to `collect_doc`.
+    /// The default implementation drops the score and forwards to `collect_match`.
     fn collect_scored(&mut self, hit: ScoredHit<Id>) {
-        self.collect_doc(hit.id);
+        self.collect_match(hit.id);
     }
 
     /// Return the current competitive threshold for this query, if any.
@@ -77,9 +79,9 @@ impl<Id: EntityId> Collector<Id> for [&mut dyn Collector<Id>] {
             .any(|collector| collector.requires_exhaustive_matches())
     }
 
-    fn collect_doc(&mut self, doc: Id) {
+    fn collect_match(&mut self, id: Id) {
         for collector in self.iter_mut() {
-            collector.collect_doc(doc);
+            collector.collect_match(id);
         }
     }
 
@@ -107,8 +109,8 @@ impl<Id: EntityId, const N: usize> Collector<Id> for [&mut dyn Collector<Id>; N]
         <[&mut dyn Collector<Id>] as Collector<Id>>::requires_exhaustive_matches(&self[..])
     }
 
-    fn collect_doc(&mut self, doc: Id) {
-        <[&mut dyn Collector<Id>] as Collector<Id>>::collect_doc(&mut self[..], doc);
+    fn collect_match(&mut self, id: Id) {
+        <[&mut dyn Collector<Id>] as Collector<Id>>::collect_match(&mut self[..], id);
     }
 
     fn collect_scored(&mut self, hit: ScoredHit<Id>) {
@@ -215,10 +217,10 @@ impl<Id: EntityId> Collector<Id> for TopKCollector<Id> {
         false
     }
 
-    fn collect_doc(&mut self, _doc: Id) {
+    fn collect_match(&mut self, _id: Id) {
         debug_assert!(
             false,
-            "TopKCollector requires scored collection and cannot collect doc-only hits"
+            "TopKCollector requires scored collection and cannot collect unscored matches"
         );
     }
 
@@ -323,7 +325,7 @@ impl<Id: EntityId> Collector<Id> for CountCollector {
         self.count = 0;
     }
 
-    fn collect_doc(&mut self, _doc: Id) {
+    fn collect_match(&mut self, _id: Id) {
         self.count = self.count.saturating_add(1);
     }
 }
@@ -397,9 +399,9 @@ mod tests {
         let mut collector = CountCollector::new();
         <CountCollector as Collector<u32>>::begin_query(&mut collector);
 
-        <CountCollector as Collector<u32>>::collect_doc(&mut collector, 1_u32);
-        <CountCollector as Collector<u32>>::collect_doc(&mut collector, 2_u32);
-        <CountCollector as Collector<u32>>::collect_doc(&mut collector, 3_u32);
+        <CountCollector as Collector<u32>>::collect_match(&mut collector, 1_u32);
+        <CountCollector as Collector<u32>>::collect_match(&mut collector, 2_u32);
+        <CountCollector as Collector<u32>>::collect_match(&mut collector, 3_u32);
 
         assert_eq!(collector.count(), 3);
         assert_eq!(collector.finish(), 3);
