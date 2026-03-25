@@ -28,7 +28,7 @@ proptest! {
         let mut collector = TopKCollector::new(k);
         collector.begin_query();
         for hit in &hits {
-            collector.collect(*hit);
+            collector.collect_scored(*hit);
         }
 
         let collected = collector.finish();
@@ -52,7 +52,7 @@ proptest! {
         let mut prior_min = Score::MIN;
 
         for hit in hits {
-            collector.collect(hit);
+            collector.collect_scored(hit);
             if collector.len() >= k {
                 let current_min = collector.min_score();
                 prop_assert!(current_min >= prior_min);
@@ -66,8 +66,8 @@ proptest! {
 fn topk_replaces_with_better_tie_break_on_equal_score() {
     let mut collector = TopKCollector::<u32>::new(1);
     collector.begin_query();
-    collector.collect(ScoredHit::new(10, Score::new(1.0)));
-    collector.collect(ScoredHit::new(1, Score::new(1.0)));
+    collector.collect_scored(ScoredHit::new(10, Score::new(1.0)));
+    collector.collect_scored(ScoredHit::new(1, Score::new(1.0)));
 
     let hits = collector.finish();
     assert_eq!(hits.len(), 1);
@@ -78,10 +78,10 @@ fn topk_replaces_with_better_tie_break_on_equal_score() {
 fn collector_reuse_clears_previous_query_state() {
     let mut collector = TopKCollector::<u32>::new(2);
 
-    <TopKCollector<u32> as Collector<u32>>::begin_query(&mut collector);
-    collector.collect(ScoredHit::new(7, Score::new(0.7)));
-    collector.collect(ScoredHit::new(9, Score::new(0.9)));
-    let first_hits = <TopKCollector<u32> as Collector<u32>>::finish(&mut collector);
+    collector.begin_query();
+    collector.collect_scored(ScoredHit::new(7, Score::new(0.7)));
+    collector.collect_scored(ScoredHit::new(9, Score::new(0.9)));
+    let first_hits = collector.finish();
     assert_eq!(
         first_hits,
         vec![
@@ -90,15 +90,12 @@ fn collector_reuse_clears_previous_query_state() {
         ]
     );
 
-    <TopKCollector<u32> as Collector<u32>>::begin_query(&mut collector);
-    assert!(<TopKCollector<u32> as Collector<u32>>::finish(&mut collector).is_empty());
-    assert_eq!(
-        <TopKCollector<u32> as Collector<u32>>::threshold(&collector),
-        None
-    );
+    collector.begin_query();
+    assert!(collector.finish().is_empty());
+    assert_eq!(collector.min_competitive_score(), None);
 
-    collector.collect(ScoredHit::new(3, Score::new(0.3)));
-    let second_hits = <TopKCollector<u32> as Collector<u32>>::finish(&mut collector);
+    collector.collect_scored(ScoredHit::new(3, Score::new(0.3)));
+    let second_hits = collector.finish();
     assert_eq!(second_hits, vec![ScoredHit::new(3, Score::new(0.3))]);
 }
 
@@ -106,25 +103,16 @@ fn collector_reuse_clears_previous_query_state() {
 fn threshold_is_absent_until_topk_reaches_capacity() {
     let mut collector = TopKCollector::<u32>::new(2);
 
-    <TopKCollector<u32> as Collector<u32>>::begin_query(&mut collector);
-    assert_eq!(
-        <TopKCollector<u32> as Collector<u32>>::threshold(&collector),
-        None
-    );
+    collector.begin_query();
+    assert_eq!(collector.min_competitive_score(), None);
     assert!(!collector.can_skip(Score::new(0.1)));
 
-    collector.collect(ScoredHit::new(1, Score::new(0.5)));
-    assert_eq!(
-        <TopKCollector<u32> as Collector<u32>>::threshold(&collector),
-        None
-    );
+    collector.collect_scored(ScoredHit::new(1, Score::new(0.5)));
+    assert_eq!(collector.min_competitive_score(), None);
     assert!(!collector.can_skip(Score::new(0.4)));
 
-    collector.collect(ScoredHit::new(2, Score::new(0.8)));
-    assert_eq!(
-        <TopKCollector<u32> as Collector<u32>>::threshold(&collector),
-        Some(Score::new(0.5))
-    );
+    collector.collect_scored(ScoredHit::new(2, Score::new(0.8)));
+    assert_eq!(collector.min_competitive_score(), Some(Score::new(0.5)));
     assert!(!collector.can_skip(Score::new(0.5)));
     assert!(!collector.can_skip(Score::new(0.6)));
     assert!(collector.can_skip(Score::new(0.4)));

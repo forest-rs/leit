@@ -3,7 +3,7 @@
 
 //! Explicit planning and execution example for the Leit stack.
 
-use leit_collect::{CountCollector, TopKCollector};
+use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::{FieldId, ScoredHit};
 use leit_index::{ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, SearchScorer};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
@@ -30,18 +30,23 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     println!("  required_features: {:?}", plan.required_features);
     println!();
 
-    // The same planned query can feed different collectors depending on what
-    // the caller needs from execution.
+    // One planned query can feed multiple collectors in one execution.
     let mut top_k = TopKCollector::new(2);
-    let hits = workspace.execute(&index, &plan, SearchScorer::bm25(), &mut top_k)?;
-    println!("top-k collector:");
+    let mut count = CountCollector::new();
+    let mut collectors = collectors([&mut top_k, &mut count]);
+    workspace.execute(&index, &plan, Some(SearchScorer::bm25()), &mut collectors)?;
+    let hits = top_k.finish();
+    let count = count.finish();
+    println!("top-k + count collectors:");
     print_hits(&hits);
+    println!("  matches: {count}");
     print_stats(workspace.last_stats());
 
-    // Reuse the planned query when only the match count matters.
-    let mut counter = CountCollector::new();
-    let count = workspace.execute(&index, &plan, SearchScorer::bm25(), &mut counter)?;
-    println!("count collector:");
+    // Reuse the plan when only the total count matters and avoid scoring entirely.
+    let mut count = CountCollector::new();
+    workspace.execute(&index, &plan, None, &mut count)?;
+    let count = count.finish();
+    println!("count-only execution:");
     println!("  matches: {count}");
     print_stats(workspace.last_stats());
 
