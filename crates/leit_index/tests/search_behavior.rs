@@ -314,7 +314,7 @@ fn count_uses_unscored_execution_path() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha")
+        .plan(&index, "alpha", &NoFilter)
         .expect("plan should succeed");
     let mut counter = CountCollector::new();
     workspace
@@ -360,7 +360,7 @@ fn multi_collector_returns_topk_and_count_from_one_execution() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha")
+        .plan(&index, "alpha", &NoFilter)
         .expect("plan should succeed");
     let mut top_k = TopKCollector::new(1);
     let mut count = CountCollector::new();
@@ -420,7 +420,7 @@ fn multi_collector_uses_lowest_score_threshold_for_shared_pruning() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha")
+        .plan(&index, "alpha", &NoFilter)
         .expect("plan should succeed");
 
     let mut top1 = TopKCollector::new(1);
@@ -460,7 +460,7 @@ fn score_aware_collectors_require_a_scorer() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha")
+        .plan(&index, "alpha", &NoFilter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(5);
     let error = workspace

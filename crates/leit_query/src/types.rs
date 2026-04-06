@@ -846,12 +846,14 @@ impl ExecutionPlan {
         self.program.max_depth += 1;
 
         let node_count = self.program.nodes.len();
+        debug_assert!(node_count > 0, "node_count cannot be zero after push");
         self.cost = u32::try_from(node_count).expect("node count exceeded u32");
-        self.selectivity = if node_count == 0 {
-            1.0
-        } else {
-            1.0 / node_count as f32
-        };
+        self.selectivity = 1.0 / node_count as f32;
+
+        debug_assert!(
+            validate_planned_program(&self.program.nodes, self.program.root).is_ok(),
+            "wrap_external_filter produced invalid program"
+        );
         self
     }
 }
@@ -981,5 +983,81 @@ mod execution_plan_tests {
         plan.wrap_external_filter(FilterSlotId::new(0));
         plan.wrap_external_filter(FilterSlotId::new(1));
         assert!(plan.program.get(plan.program.root()).is_some());
+    }
+
+    #[test]
+    fn filter_node_passes_validation() {
+        let nodes = vec![
+            QueryNode::Term {
+                field: FieldId::new(0),
+                term: TermId::new(0),
+                boost: 1.0,
+            },
+            QueryNode::Filter {
+                input: QueryNodeId::new(0),
+                predicate: FilterPredicate::Eq {
+                    field: FieldId::new(0),
+                    value: FilterValue::U64(42),
+                },
+            },
+        ];
+        let program = QueryProgram::try_new(nodes, QueryNodeId::new(1), 2);
+        assert!(program.is_ok());
+    }
+
+    #[test]
+    fn external_filter_node_passes_validation() {
+        let nodes = vec![
+            QueryNode::Term {
+                field: FieldId::new(0),
+                term: TermId::new(0),
+                boost: 1.0,
+            },
+            QueryNode::ExternalFilter {
+                input: QueryNodeId::new(0),
+                slot: FilterSlotId::new(0),
+            },
+        ];
+        let program = QueryProgram::try_new(nodes, QueryNodeId::new(1), 2);
+        assert!(program.is_ok());
+    }
+
+    #[test]
+    fn filter_children_returns_input() {
+        let node = QueryNode::Filter {
+            input: QueryNodeId::new(5),
+            predicate: FilterPredicate::Eq {
+                field: FieldId::new(0),
+                value: FilterValue::I64(0),
+            },
+        };
+        assert_eq!(node.children(), &[QueryNodeId::new(5)]);
+    }
+
+    #[test]
+    fn external_filter_children_returns_input() {
+        let node = QueryNode::ExternalFilter {
+            input: QueryNodeId::new(3),
+            slot: FilterSlotId::new(0),
+        };
+        assert_eq!(node.children(), &[QueryNodeId::new(3)]);
+    }
+
+    #[test]
+    fn filter_predicate_boolean_combinators() {
+        let eq = FilterPredicate::Eq {
+            field: FieldId::new(0),
+            value: FilterValue::Str("article".into()),
+        };
+        let range = FilterPredicate::Range {
+            field: FieldId::new(1),
+            low: None,
+            high: Some(FilterValue::U64(1000)),
+        };
+        let and = FilterPredicate::And(alloc::vec![eq.clone(), range]);
+        let not = FilterPredicate::Not(alloc::boxed::Box::new(eq));
+
+        // Just verify they construct and compare correctly
+        assert_ne!(and, not);
     }
 }

@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
     // Planning is a separate step, so callers can inspect or reuse the query
     // program before deciding how to execute it.
-    let plan = workspace.plan(&index, query)?;
+    let plan = workspace.plan(&index, query, &NoFilter)?;
     println!("query: {query}");
     println!("plan:");
     println!("  nodes: {}", plan.program.node_count());

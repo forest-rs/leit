@@ -434,6 +434,14 @@ impl InMemoryIndex {
         }
     }
 
+    /// Try to execute the plan root via an optimized fast path.
+    ///
+    /// Returns `Ok(true)` if handled, `Ok(false)` to fall through to the
+    /// general evaluator. The `filter` parameter is threaded to recursive
+    /// calls (e.g. `ConstantScore` → `evaluate_node`) but is not consulted
+    /// on leaf fast paths (`Term`) because those only fire when the root is
+    /// a bare `Term` node with no `ExternalFilter` wrapping. Filter dispatch
+    /// is node-mediated via `ExternalFilter` nodes in the general evaluator.
     pub(crate) fn try_execute_root<S, F>(
         &self,
         plan: &ExecutionPlan,
@@ -452,6 +460,11 @@ impl InMemoryIndex {
         };
         match node {
             QueryNode::Term { field, term, boost } => {
+                debug_assert!(
+                    filter.slots().is_empty(),
+                    "Term fast path fired with active filter slots; \
+                     ensure plan() was called with the same filter as execute()"
+                );
                 self.collect_term(
                     *field,
                     *term,
@@ -482,6 +495,10 @@ impl InMemoryIndex {
         }
     }
 
+    /// Unscored variant of [`try_execute_root`](Self::try_execute_root).
+    ///
+    /// Same fast-path semantics: `filter` is threaded to recursive calls but
+    /// not consulted on the bare `Term` leaf path.
     pub(crate) fn try_execute_root_unscored<S, F>(
         &self,
         plan: &ExecutionPlan,
@@ -498,6 +515,11 @@ impl InMemoryIndex {
         };
         match node {
             QueryNode::Term { term, .. } => {
+                debug_assert!(
+                    filter.slots().is_empty(),
+                    "Term fast path fired with active filter slots; \
+                     ensure plan() was called with the same filter as execute()"
+                );
                 self.collect_term_docs(*term, collectors, stats);
                 Ok(true)
             }

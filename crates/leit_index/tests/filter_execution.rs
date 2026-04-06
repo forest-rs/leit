@@ -37,27 +37,51 @@ fn build_test_index() -> InMemoryIndex {
 }
 
 struct AcceptAll;
+impl AcceptAll {
+    const SLOTS: [FilterSlotId; 1] = [FilterSlotId::new(0)];
+}
 impl FilterEvaluator<u32> for AcceptAll {
     fn evaluate(&self, _slot: FilterSlotId, _id: &u32) -> bool {
         true
     }
+
+    fn slots(&self) -> &[FilterSlotId] {
+        &Self::SLOTS
+    }
 }
 
 struct RejectAll;
+impl RejectAll {
+    const SLOTS: [FilterSlotId; 1] = [FilterSlotId::new(0)];
+}
 impl FilterEvaluator<u32> for RejectAll {
     fn evaluate(&self, _slot: FilterSlotId, _id: &u32) -> bool {
         false
     }
+
+    fn slots(&self) -> &[FilterSlotId] {
+        &Self::SLOTS
+    }
 }
 
 struct AcceptOnly(Vec<u32>);
+impl AcceptOnly {
+    const SLOTS: [FilterSlotId; 1] = [FilterSlotId::new(0)];
+}
 impl FilterEvaluator<u32> for AcceptOnly {
     fn evaluate(&self, _slot: FilterSlotId, id: &u32) -> bool {
         self.0.contains(id)
     }
+
+    fn slots(&self) -> &[FilterSlotId] {
+        &Self::SLOTS
+    }
 }
 
 struct MultiSlotFilter;
+impl MultiSlotFilter {
+    const SLOTS: [FilterSlotId; 2] = [FilterSlotId::new(0), FilterSlotId::new(1)];
+}
 impl FilterEvaluator<u32> for MultiSlotFilter {
     fn evaluate(&self, slot: FilterSlotId, id: &u32) -> bool {
         match slot.as_u32() {
@@ -65,6 +89,10 @@ impl FilterEvaluator<u32> for MultiSlotFilter {
             1 => [2, 3].contains(id),
             _ => false,
         }
+    }
+
+    fn slots(&self) -> &[FilterSlotId] {
+        &Self::SLOTS
     }
 }
 
@@ -88,9 +116,10 @@ fn accept_all_matches_unfiltered() {
 fn reject_all_returns_empty() {
     let index = build_test_index();
 
+    let filter = RejectAll;
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan_filtered(&index, "rust", &[FilterSlotId::new(0)])
+        .plan(&index, "rust", &filter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(10);
     workspace
@@ -98,7 +127,7 @@ fn reject_all_returns_empty() {
             &index,
             &plan,
             Some(SearchScorer::bm25()),
-            &RejectAll,
+            &filter,
             &mut collector,
         )
         .expect("execution should succeed");
@@ -111,9 +140,10 @@ fn reject_all_returns_empty() {
 fn selective_filter_keeps_matching_docs() {
     let index = build_test_index();
 
+    let filter = AcceptOnly(vec![1]);
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan_filtered(&index, "rust", &[FilterSlotId::new(0)])
+        .plan(&index, "rust", &filter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(10);
     workspace
@@ -121,7 +151,7 @@ fn selective_filter_keeps_matching_docs() {
             &index,
             &plan,
             Some(SearchScorer::bm25()),
-            &AcceptOnly(vec![1]),
+            &filter,
             &mut collector,
         )
         .expect("execution should succeed");
@@ -136,15 +166,12 @@ fn selective_filter_keeps_matching_docs() {
 fn plan_filtered_chains_external_filters() {
     let index = build_test_index();
 
+    let filter = MultiSlotFilter;
     let mut workspace = ExecutionWorkspace::new();
     // Two filter slots: slot 0 accepts {1,2}, slot 1 accepts {2,3}.
     // Only doc 2 matches "rust" AND passes both filters.
     let plan = workspace
-        .plan_filtered(
-            &index,
-            "rust",
-            &[FilterSlotId::new(0), FilterSlotId::new(1)],
-        )
+        .plan(&index, "rust", &filter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(10);
     workspace
@@ -152,7 +179,7 @@ fn plan_filtered_chains_external_filters() {
             &index,
             &plan,
             Some(SearchScorer::bm25()),
-            &MultiSlotFilter,
+            &filter,
             &mut collector,
         )
         .expect("execution should succeed");

@@ -146,6 +146,12 @@ impl EntityId for i64 {}
 pub trait FilterEvaluator<Id: EntityId> {
     /// Evaluate whether the entity with the given ID passes the filter.
     fn evaluate(&self, slot: FilterSlotId, id: &Id) -> bool;
+
+    /// Return the filter slots this evaluator handles.
+    ///
+    /// These slots are used during planning to wrap the query with
+    /// `ExternalFilter` nodes. An empty slice means no filtering.
+    fn slots(&self) -> &[FilterSlotId];
 }
 
 /// No-op filter evaluator. All candidates pass.
@@ -158,6 +164,10 @@ pub struct NoFilter;
 impl<Id: EntityId> FilterEvaluator<Id> for NoFilter {
     fn evaluate(&self, _slot: FilterSlotId, _id: &Id) -> bool {
         true
+    }
+
+    fn slots(&self) -> &[FilterSlotId] {
+        &[]
     }
 }
 
