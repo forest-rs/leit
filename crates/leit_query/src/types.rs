@@ -471,7 +471,10 @@ fn validate_planned_program(nodes: &[QueryNode], root: QueryNodeId) -> Result<()
                     }
                 }
             }
-            QueryNode::Not { child } | QueryNode::ConstantScore { child, .. } => {
+            QueryNode::Not { child }
+            | QueryNode::ConstantScore { child, .. }
+            | QueryNode::Filter { input: child, .. }
+            | QueryNode::ExternalFilter { input: child, .. } => {
                 if !contains(*child) {
                     return Err(QueryError::InvalidProgramReference {
                         parent,
@@ -557,13 +560,38 @@ pub enum QueryNode {
         /// Score multiplier.
         score: f32,
     },
+    /// Structured predicate filter. Evaluates `input` for scoring, then
+    /// accepts/rejects candidates based on `predicate`.
+    ///
+    /// Does not contribute to score. Native evaluation deferred until
+    /// columnar storage lands (Phase 3).
+    Filter {
+        /// The scoring subquery.
+        input: QueryNodeId,
+        /// The structured predicate.
+        predicate: FilterPredicate,
+    },
+    /// Application-provided filter resolved at execution time via
+    /// [`FilterEvaluator`](leit_core::FilterEvaluator). Evaluates `input` for scoring, then calls
+    /// the evaluator with `slot` to accept/reject candidates.
+    ///
+    /// Does not contribute to score.
+    ExternalFilter {
+        /// The scoring subquery.
+        input: QueryNodeId,
+        /// The filter slot identifier.
+        slot: leit_core::FilterSlotId,
+    },
 }
 
 impl QueryNode {
     fn children(&self) -> &[QueryNodeId] {
         match self {
             Self::And { children, .. } | Self::Or { children, .. } => children,
-            Self::Not { child } | Self::ConstantScore { child, .. } => core::slice::from_ref(child),
+            Self::Not { child }
+            | Self::ConstantScore { child, .. }
+            | Self::Filter { input: child, .. }
+            | Self::ExternalFilter { input: child, .. } => core::slice::from_ref(child),
             Self::Term { .. } => &[],
         }
     }
@@ -792,4 +820,62 @@ pub struct ExecutionPlan {
     pub cost: u32,
     /// Required execution features.
     pub required_features: FeatureSet,
+}
+
+/// A typed filter value for structured predicates.
+///
+/// `F64` values must be finite. Non-finite values (NaN, infinity) are not
+/// meaningful as filter predicates and may produce unexpected equality/ordering
+/// behavior.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FilterValue {
+    /// Unsigned 64-bit integer.
+    U64(u64),
+    /// Signed 64-bit integer.
+    I64(i64),
+    /// 64-bit floating point (must be finite).
+    F64(f64),
+    /// String value.
+    Str(alloc::string::String),
+}
+
+/// A structured field predicate for columnar data.
+///
+/// These predicates define the filter IR. Native evaluation requires
+/// columnar storage (Phase 3). Until then, constructing a [`QueryNode::Filter`]
+/// is valid, but executing it returns an error.
+///
+/// Boolean combinators (`And`, `Or`, `Not`) compose predicates within a
+/// single `Filter` node, avoiding double-evaluation of the input subquery.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FilterPredicate {
+    /// Exact equality on a field value.
+    Eq {
+        /// The field to filter on.
+        field: leit_core::FieldId,
+        /// The value to compare against.
+        value: FilterValue,
+    },
+    /// Inclusive range predicate. Either bound may be omitted for open-ended ranges.
+    Range {
+        /// The field to filter on.
+        field: leit_core::FieldId,
+        /// Lower bound (inclusive), or `None` for unbounded.
+        low: Option<FilterValue>,
+        /// Upper bound (inclusive), or `None` for unbounded.
+        high: Option<FilterValue>,
+    },
+    /// Set membership predicate.
+    In {
+        /// The field to filter on.
+        field: leit_core::FieldId,
+        /// The set of values to match against.
+        values: Vec<FilterValue>,
+    },
+    /// Boolean conjunction — all child predicates must match.
+    And(Vec<Self>),
+    /// Boolean disjunction — at least one child predicate must match.
+    Or(Vec<Self>),
+    /// Boolean negation.
+    Not(alloc::boxed::Box<Self>),
 }

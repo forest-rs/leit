@@ -22,8 +22,8 @@ mod types;
 
 pub use types::{
     BooleanOp, BooleanView, BoostView, ExecutionPlan, ExtractionError, FeatureSet, FieldRegistry,
-    PhraseView, PlannerScratch, PlanningContext, QueryError, QueryNode, QueryProgram,
-    TermDictionary, TermView, UserQueryNode, UserQueryProgram,
+    FilterPredicate, FilterValue, PhraseView, PlannerScratch, PlanningContext, QueryError,
+    QueryNode, QueryProgram, TermDictionary, TermView, UserQueryNode, UserQueryProgram,
 };
 
 pub use builder::{QueryBuilder, phrase, phrase_with_slop, term, term_with_field};
