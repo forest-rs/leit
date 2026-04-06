@@ -10,7 +10,7 @@ use leit_collect::{Collector, CountCollector, TopKCollector};
 use leit_core::{EntityId, Score, ScoredHit, ScratchSpace, Workspace};
 use leit_fusion::{RankedResult, fuse_default};
 use leit_index::{
-    ExecutionWorkspace, InMemoryIndexBuilder, SearchScorer, SectionKind, SegmentView,
+    ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer, SectionKind, SegmentView,
 };
 use leit_postings::DocCursor;
 use leit_query::{
@@ -655,6 +655,7 @@ fn test_e2e_search_pipeline() {
             "title:rust OR body:retrieval",
             10,
             SearchScorer::bm25(),
+            &NoFilter,
         )
         .expect("search should succeed");
 
@@ -732,6 +733,7 @@ fn test_e2e_search_pipeline_bm25f() {
             "title:rust OR body:retrieval",
             10,
             SearchScorer::bm25f(),
+            &NoFilter,
         )
         .expect("bm25f search should succeed");
 

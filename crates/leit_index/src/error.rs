@@ -18,6 +18,8 @@ pub enum IndexError {
     MissingScorer,
     /// A size or offset does not fit in the on-disk format.
     ValueOutOfRange,
+    /// Structured filter predicates require columnar storage (Phase 3).
+    UnsupportedFilterPredicate,
     /// Query planning failed.
     Query(QueryError),
 }
@@ -30,6 +32,10 @@ impl fmt::Display for IndexError {
                 write!(f, "missing analyzer for field {}", field.as_u32())
             }
             Self::MissingScorer => write!(f, "execution requires a scorer but none was provided"),
+            Self::UnsupportedFilterPredicate => write!(
+                f,
+                "structured filter predicates require columnar storage (not yet implemented)"
+            ),
             Self::ValueOutOfRange => write!(f, "value out of range for on-disk format"),
             Self::Query(err) => write!(f, "query error: {err}"),
         }
@@ -40,7 +46,11 @@ impl core::error::Error for IndexError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Query(err) => Some(err),
-            _ => None,
+            Self::DuplicateDocument(_)
+            | Self::MissingAnalyzer(_)
+            | Self::MissingScorer
+            | Self::UnsupportedFilterPredicate
+            | Self::ValueOutOfRange => None,
         }
     }
 }

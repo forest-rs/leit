@@ -4,7 +4,7 @@
 use alloc::vec::Vec;
 
 use leit_collect::{Collector, TopKCollector};
-use leit_core::{FieldId, Score, ScoredHit, ScratchSpace};
+use leit_core::{FieldId, FilterEvaluator, Score, ScoredHit, ScratchSpace};
 use leit_query::{ExecutionPlan, Planner, PlannerScratch, PlanningContext};
 use leit_score::{Bm25FScorer, Bm25Scorer, FieldStats, Scorer, ScoringStats};
 
@@ -104,30 +104,46 @@ impl ExecutionWorkspace {
     }
 
     /// Plan a textual query for this index using reusable scratch state.
-    pub fn plan(
+    ///
+    /// The filter's [`slots()`](FilterEvaluator::slots) are used to wrap the
+    /// plan with [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes.
+    /// Pass [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    pub fn plan<F: FilterEvaluator<u32>>(
         &mut self,
         index: &InMemoryIndex,
         query: &str,
+        filter: &F,
     ) -> Result<ExecutionPlan, IndexError> {
         self.clear();
         let planner = Planner::new();
         let default_fields = index.default_fields();
         let context = PlanningContext::new(index, index).with_default_fields(default_fields);
-        planner
+        let mut plan = planner
             .plan(query, &context, &mut self.planner)
-            .map_err(IndexError::Query)
+            .map_err(IndexError::Query)?;
+        for slot in filter.slots() {
+            plan.wrap_external_filter(*slot);
+        }
+        Ok(plan)
     }
 
-    /// Execute a planned query with an optional scorer and collectors.
-    pub fn execute<S>(
+    /// Execute a planned query with an optional scorer, filter evaluator, and collectors.
+    ///
+    /// The `filter` evaluator is dispatched by [`ExternalFilter`](leit_query::QueryNode::ExternalFilter)
+    /// nodes in the plan. It is **not** applied as a global post-filter — use
+    /// [`plan`](Self::plan) with the same filter to ensure the plan contains the
+    /// appropriate filter nodes.
+    pub fn execute<S, F>(
         &mut self,
         index: &InMemoryIndex,
         plan: &ExecutionPlan,
         scorer: Option<SearchScorer>,
+        filter: &F,
         collectors: &mut S,
     ) -> Result<(), IndexError>
     where
         S: Collector<u32> + ?Sized,
+        F: FilterEvaluator<u32>,
     {
         self.last_stats = ExecutionStats::default();
         collectors.begin_query();
@@ -143,8 +159,9 @@ impl ExecutionWorkspace {
                 collectors,
                 &mut self.last_stats,
                 allow_pruning,
+                filter,
             )? {
-                let result = index.evaluate_plan(plan, scorer, &mut self.last_stats)?;
+                let result = index.evaluate_plan(plan, scorer, filter, &mut self.last_stats)?;
                 InMemoryIndex::collect_result(
                     result,
                     collectors,
@@ -152,24 +169,35 @@ impl ExecutionWorkspace {
                     allow_pruning,
                 );
             }
-        } else if !index.try_execute_root_unscored(plan, collectors, &mut self.last_stats)? {
-            let matches = index.evaluate_matches(plan)?;
+        } else if !index.try_execute_root_unscored(
+            plan,
+            collectors,
+            &mut self.last_stats,
+            filter,
+        )? {
+            let matches = index.evaluate_matches(plan, filter)?;
             InMemoryIndex::collect_matches(matches, collectors, &mut self.last_stats);
         }
         Ok(())
     }
 
-    /// Plan and execute a textual query with an explicit scorer.
-    pub fn search(
+    /// Plan and execute a textual query with an explicit scorer and filter.
+    ///
+    /// The filter's [`slots()`](FilterEvaluator::slots) are used to wrap the
+    /// plan with [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes,
+    /// and the evaluator is dispatched for each candidate during execution.
+    /// Pass [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    pub fn search<F: FilterEvaluator<u32>>(
         &mut self,
         index: &InMemoryIndex,
         query: &str,
         limit: usize,
         scorer: SearchScorer,
+        filter: &F,
     ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
-        let plan = self.plan(index, query)?;
+        let plan = self.plan(index, query, filter)?;
         let mut collector = TopKCollector::new(limit);
-        self.execute(index, &plan, Some(scorer), &mut collector)?;
+        self.execute(index, &plan, Some(scorer), filter, &mut collector)?;
         Ok(collector.finish())
     }
 }

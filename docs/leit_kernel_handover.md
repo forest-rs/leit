@@ -2041,7 +2041,7 @@ The following table summarizes the key architectural decisions and open question
 | Fusion baseline (RRF)                                             | **Decided** | Phase 1 | Implemented in `leit_fusion`                                        |
 | Segment views loadable from `&[u8]` (no_std path)                 | **Decided** | Phase 1 | `std` acquisition layer optional                                    |
 | Error handling via concrete enums                                 | **Decided** | Phase 1 | No `anyhow` or boxed errors in kernel crates                        |
-| Filter expression storage (arena vs side structure)               | Open        | Phase 1 | Resolve during early query planning implementation                  |
+| Filter expression storage (arena vs side structure)               | **Decided** | Phase 1 | Stored as `QueryNode::Filter`/`ExternalFilter` variants in existing arena |
 | Decode scratch ownership model                                    | Open        | Phase 2 | Impacts postings decode API                                         |
 | Segment metadata layout (inline vs sidecar blocks)                | Open        | Phase 2 | Requires wind‑tunnel benchmarking                                   |
 | WAND / Block‑Max WAND implementation strategy                     | Open        | Phase 3 | Depends on block metadata structure                                 |

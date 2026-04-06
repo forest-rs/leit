@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use leit_core::FieldId;
-use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer};
+use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, SearchScorer};
 use leit_text::{
     Analyzer, CaseMapping, FieldAnalyzers, Normalizer, UnicodeNormalizer, WhitespaceTokenizer,
 };
@@ -83,7 +83,7 @@ fn normalize_for_expectation(token: &str) -> String {
 fn search(index: &InMemoryIndex, query: &str) -> Vec<leit_core::ScoredHit<u32>> {
     let mut workspace = ExecutionWorkspace::new();
     workspace
-        .search(index, query, 16, SearchScorer::bm25())
+        .search(index, query, 16, SearchScorer::bm25(), &NoFilter)
         .expect("search should succeed")
 }
 

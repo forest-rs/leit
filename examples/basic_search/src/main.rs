@@ -4,7 +4,7 @@
 //! Minimal end-to-end example for the Leit stack.
 
 use leit_core::{FieldId, ScoredHit};
-use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, SearchScorer};
+use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer};
 use leit_text::{Analyzer, CaseMapping, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
 const TITLE: FieldId = FieldId::new(1);
@@ -76,19 +76,25 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     // Ordinary lexical query over a mix of explicit and bare terms.
     print_hits(
         "title:rust OR retrieval",
-        workspace.search(&index, "title:rust OR retrieval", 5, SearchScorer::bm25())?,
+        workspace.search(
+            &index,
+            "title:rust OR retrieval",
+            5,
+            SearchScorer::bm25(),
+            &NoFilter,
+        )?,
     );
     // The indexed title uses a decomposed uppercase spelling (`CAFE\u{301}`),
     // while the query uses the composed lowercase form.
     print_hits(
         "café",
-        workspace.search(&index, "café", 5, SearchScorer::bm25())?,
+        workspace.search(&index, "café", 5, SearchScorer::bm25(), &NoFilter)?,
     );
     // The indexed body contains uppercase `STRASSE`, while the query uses
     // lowercase `straße`. This field opts into full Unicode case folding.
     print_hits(
         "straße",
-        workspace.search(&index, "straße", 5, SearchScorer::bm25())?,
+        workspace.search(&index, "straße", 5, SearchScorer::bm25(), &NoFilter)?,
     );
 
     Ok(())
