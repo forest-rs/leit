@@ -401,9 +401,9 @@ impl UserQueryNode {
 /// Execution-facing query program produced by the Phase 1 planner.
 #[derive(Clone, Debug, PartialEq)]
 pub struct QueryProgram {
-    nodes: Vec<QueryNode>,
-    root: QueryNodeId,
-    max_depth: usize,
+    pub(crate) nodes: Vec<QueryNode>,
+    pub(crate) root: QueryNodeId,
+    pub(crate) max_depth: usize,
 }
 
 impl QueryProgram {
@@ -822,6 +822,40 @@ pub struct ExecutionPlan {
     pub required_features: FeatureSet,
 }
 
+impl ExecutionPlan {
+    /// Wrap the current plan root in an [`ExternalFilter`](QueryNode::ExternalFilter) node.
+    ///
+    /// This is a post-planning transformation. It appends an `ExternalFilter`
+    /// node to the program, updates the root, and recomputes metadata:
+    ///
+    /// - `program.root` — replaced with the new node ID
+    /// - `program.max_depth` — incremented by 1
+    /// - `cost` — recomputed as `program.nodes.len()`
+    /// - `selectivity` — recomputed as `1.0 / node_count`
+    /// - `required_features` — preserved
+    pub fn wrap_external_filter(&mut self, slot: leit_core::FilterSlotId) -> &mut Self {
+        let old_root = self.program.root;
+        let new_id = QueryNodeId::new(
+            u32::try_from(self.program.nodes.len()).expect("query program exceeded u32 node IDs"),
+        );
+        self.program.nodes.push(QueryNode::ExternalFilter {
+            input: old_root,
+            slot,
+        });
+        self.program.root = new_id;
+        self.program.max_depth += 1;
+
+        let node_count = self.program.nodes.len();
+        self.cost = u32::try_from(node_count).expect("node count exceeded u32");
+        self.selectivity = if node_count == 0 {
+            1.0
+        } else {
+            1.0 / node_count as f32
+        };
+        self
+    }
+}
+
 /// A typed filter value for structured predicates.
 ///
 /// `F64` values must be finite. Non-finite values (NaN, infinity) are not
@@ -878,4 +912,74 @@ pub enum FilterPredicate {
     Or(Vec<Self>),
     /// Boolean negation.
     Not(alloc::boxed::Box<Self>),
+}
+
+#[cfg(test)]
+mod execution_plan_tests {
+    use super::*;
+    use leit_core::{FieldId, FilterSlotId, TermId};
+
+    fn simple_term_plan() -> ExecutionPlan {
+        let nodes = vec![QueryNode::Term {
+            field: FieldId::new(0),
+            term: TermId::new(0),
+            boost: 1.0,
+        }];
+        ExecutionPlan {
+            program: QueryProgram::new(nodes, QueryNodeId::new(0), 1),
+            selectivity: 1.0,
+            cost: 1,
+            required_features: FeatureSet::basic(),
+        }
+    }
+
+    #[test]
+    fn wrap_external_filter_updates_root() {
+        let mut plan = simple_term_plan();
+        let old_root = plan.program.root();
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        assert_ne!(plan.program.root(), old_root);
+    }
+
+    #[test]
+    fn wrap_external_filter_increments_depth() {
+        let mut plan = simple_term_plan();
+        let old_depth = plan.program.max_depth();
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        assert_eq!(plan.program.max_depth(), old_depth + 1);
+    }
+
+    #[test]
+    fn wrap_external_filter_recomputes_cost() {
+        let mut plan = simple_term_plan();
+        assert_eq!(plan.cost, 1);
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        assert_eq!(plan.cost, 2);
+        plan.wrap_external_filter(FilterSlotId::new(1));
+        assert_eq!(plan.cost, 3);
+    }
+
+    #[test]
+    fn wrap_external_filter_recomputes_selectivity() {
+        let mut plan = simple_term_plan();
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        let expected = 1.0 / plan.program.node_count() as f32;
+        assert!((plan.selectivity - expected).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn wrap_external_filter_preserves_required_features() {
+        let mut plan = simple_term_plan();
+        let features_before = plan.required_features;
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        assert_eq!(plan.required_features, features_before);
+    }
+
+    #[test]
+    fn wrapped_plan_passes_validation() {
+        let mut plan = simple_term_plan();
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        plan.wrap_external_filter(FilterSlotId::new(1));
+        assert!(plan.program.get(plan.program.root()).is_some());
+    }
 }
