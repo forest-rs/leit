@@ -5,7 +5,9 @@
 
 use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::{FieldId, ScoredHit};
-use leit_index::{ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, SearchScorer};
+use leit_index::{
+    ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer,
+};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
 const TITLE: FieldId = FieldId::new(1);
@@ -34,7 +36,13 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     let mut top_k = TopKCollector::new(2);
     let mut count = CountCollector::new();
     let mut collectors = collectors([&mut top_k, &mut count]);
-    workspace.execute(&index, &plan, Some(SearchScorer::bm25()), &mut collectors)?;
+    workspace.execute(
+        &index,
+        &plan,
+        Some(SearchScorer::bm25()),
+        &NoFilter,
+        &mut collectors,
+    )?;
     let hits = top_k.finish();
     let count = count.finish();
     println!("top-k + count collectors:");
@@ -44,7 +52,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
     // Reuse the plan when only the total count matters and avoid scoring entirely.
     let mut count = CountCollector::new();
-    workspace.execute(&index, &plan, None, &mut count)?;
+    workspace.execute(&index, &plan, None, &NoFilter, &mut count)?;
     let count = count.finish();
     println!("count-only execution:");
     println!("  matches: {count}");

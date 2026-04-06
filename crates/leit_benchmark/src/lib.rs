@@ -6,7 +6,7 @@
 use std::time::{Duration, Instant};
 
 use leit_core::FieldId;
-use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, SearchScorer};
+use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
 /// A fixed Phase 1 benchmark document.
@@ -158,7 +158,13 @@ pub fn run_scenario(scenario: &BenchmarkScenario) -> Result<BenchmarkReport, Str
     for query in &scenario.queries {
         let query_start = Instant::now();
         let hits = workspace
-            .search(&index, query.text, query.limit, SearchScorer::bm25())
+            .search(
+                &index,
+                query.text,
+                query.limit,
+                SearchScorer::bm25(),
+                &NoFilter,
+            )
             .map_err(|error| format!("benchmark query '{}' failed: {error:?}", query.name))?;
         let latency = query_start.elapsed();
         let hit_ids = hits.iter().map(|hit| hit.id).collect();
