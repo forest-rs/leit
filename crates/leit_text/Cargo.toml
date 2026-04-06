@@ -14,8 +14,8 @@ categories.workspace = true
 [dependencies]
 icu_casemap.workspace = true
 icu_locale_core.workspace = true
+icu_normalizer.workspace = true
 leit_core.workspace = true
-unicode-normalization.workspace = true
 
 [features]
 default = ["std"]
