@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use core::ops::{AddAssign, MulAssign};
 
 use leit_collect::Collector;
-use leit_core::{FieldId, QueryNodeId, Score, ScoredHit, TermId};
+use leit_core::{FieldId, FilterEvaluator, QueryNodeId, Score, ScoredHit, TermId};
 use leit_query::{ExecutionPlan, FieldRegistry, QueryNode, QueryProgram, TermDictionary};
 use leit_text::FieldAnalyzers;
 
@@ -154,27 +154,30 @@ impl InMemoryIndex {
         }
     }
 
-    pub(crate) fn evaluate_plan(
+    pub(crate) fn evaluate_plan<F: FilterEvaluator<u32>>(
         &self,
         plan: &ExecutionPlan,
         scorer: SearchScorer,
+        filter: &F,
         stats: &mut ExecutionStats,
     ) -> Result<EvalResult, IndexError> {
-        self.evaluate_node(plan.program.root(), &plan.program, scorer, stats)
+        self.evaluate_node(plan.program.root(), &plan.program, scorer, filter, stats)
     }
 
-    pub(crate) fn evaluate_matches(
+    pub(crate) fn evaluate_matches<F: FilterEvaluator<u32>>(
         &self,
         plan: &ExecutionPlan,
+        filter: &F,
     ) -> Result<BTreeSet<u32>, IndexError> {
-        self.evaluate_matches_node(plan.program.root(), &plan.program)
+        self.evaluate_matches_node(plan.program.root(), &plan.program, filter)
     }
 
-    fn evaluate_node(
+    fn evaluate_node<F: FilterEvaluator<u32>>(
         &self,
         node_id: QueryNodeId,
         program: &QueryProgram,
         scoring: SearchScorer,
+        filter: &F,
         stats: &mut ExecutionStats,
     ) -> Result<EvalResult, IndexError> {
         let Some(node) = program.get(node_id) else {
@@ -189,7 +192,8 @@ impl InMemoryIndex {
                 let mut matches = BTreeSet::new();
                 let mut results = BTreeMap::new();
                 for child in children {
-                    let child_result = self.evaluate_node(*child, program, scoring, stats)?;
+                    let child_result =
+                        self.evaluate_node(*child, program, scoring, filter, stats)?;
                     matches.extend(child_result.matches);
                     for (doc_id, score) in child_result.scores {
                         let entry = results.entry(doc_id).or_insert(Score::ZERO);
@@ -211,12 +215,13 @@ impl InMemoryIndex {
                 let Some(first) = iter.next() else {
                     return Ok(EvalResult::default());
                 };
-                let first_result = self.evaluate_node(*first, program, scoring, stats)?;
+                let first_result = self.evaluate_node(*first, program, scoring, filter, stats)?;
                 let mut matches = first_result.matches.clone();
                 let mut child_results = Vec::new();
                 child_results.push(first_result);
                 for child in iter {
-                    let child_result = self.evaluate_node(*child, program, scoring, stats)?;
+                    let child_result =
+                        self.evaluate_node(*child, program, scoring, filter, stats)?;
                     matches.retain(|doc_id| child_result.matches.contains(doc_id));
                     child_results.push(child_result);
                 }
@@ -240,7 +245,9 @@ impl InMemoryIndex {
                 })
             }
             QueryNode::Not { child } => {
-                let child_matches = self.evaluate_node(*child, program, scoring, stats)?.matches;
+                let child_matches = self
+                    .evaluate_node(*child, program, scoring, filter, stats)?
+                    .matches;
                 let mut matches = BTreeSet::new();
                 for doc_id in &self.documents {
                     if !child_matches.contains(doc_id) {
@@ -250,7 +257,7 @@ impl InMemoryIndex {
                 Ok(EvalResult::from_matches(matches))
             }
             QueryNode::ConstantScore { child, score } => {
-                let mut result = self.evaluate_node(*child, program, scoring, stats)?;
+                let mut result = self.evaluate_node(*child, program, scoring, filter, stats)?;
                 result.scores.clear();
                 let safe_score = Score::try_from(*score).unwrap_or(Score::ZERO);
                 for doc_id in &result.matches {
@@ -258,13 +265,25 @@ impl InMemoryIndex {
                 }
                 Ok(result)
             }
+            QueryNode::ExternalFilter { input, slot } => {
+                let mut result = self.evaluate_node(*input, program, scoring, filter, stats)?;
+                result
+                    .matches
+                    .retain(|doc_id| filter.evaluate(*slot, doc_id));
+                result
+                    .scores
+                    .retain(|doc_id, _| result.matches.contains(doc_id));
+                Ok(result)
+            }
+            QueryNode::Filter { .. } => Err(IndexError::UnsupportedFilterPredicate),
         }
     }
 
-    fn evaluate_matches_node(
+    fn evaluate_matches_node<F: FilterEvaluator<u32>>(
         &self,
         node_id: QueryNodeId,
         program: &QueryProgram,
+        filter: &F,
     ) -> Result<BTreeSet<u32>, IndexError> {
         let Some(node) = program.get(node_id) else {
             return Ok(BTreeSet::new());
@@ -283,7 +302,7 @@ impl InMemoryIndex {
             QueryNode::Or { children, .. } => {
                 let mut matches = BTreeSet::new();
                 for child in children {
-                    matches.extend(self.evaluate_matches_node(*child, program)?);
+                    matches.extend(self.evaluate_matches_node(*child, program, filter)?);
                 }
                 Ok(matches)
             }
@@ -292,15 +311,15 @@ impl InMemoryIndex {
                 let Some(first) = iter.next() else {
                     return Ok(BTreeSet::new());
                 };
-                let mut matches = self.evaluate_matches_node(*first, program)?;
+                let mut matches = self.evaluate_matches_node(*first, program, filter)?;
                 for child in iter {
-                    let child_matches = self.evaluate_matches_node(*child, program)?;
+                    let child_matches = self.evaluate_matches_node(*child, program, filter)?;
                     matches.retain(|doc_id| child_matches.contains(doc_id));
                 }
                 Ok(matches)
             }
             QueryNode::Not { child } => {
-                let child_matches = self.evaluate_matches_node(*child, program)?;
+                let child_matches = self.evaluate_matches_node(*child, program, filter)?;
                 let mut matches = BTreeSet::new();
                 for doc_id in &self.documents {
                     if !child_matches.contains(doc_id) {
@@ -309,7 +328,15 @@ impl InMemoryIndex {
                 }
                 Ok(matches)
             }
-            QueryNode::ConstantScore { child, .. } => self.evaluate_matches_node(*child, program),
+            QueryNode::ConstantScore { child, .. } => {
+                self.evaluate_matches_node(*child, program, filter)
+            }
+            QueryNode::ExternalFilter { input, slot } => {
+                let mut matches = self.evaluate_matches_node(*input, program, filter)?;
+                matches.retain(|doc_id| filter.evaluate(*slot, doc_id));
+                Ok(matches)
+            }
+            QueryNode::Filter { .. } => Err(IndexError::UnsupportedFilterPredicate),
         }
     }
 
@@ -407,22 +434,37 @@ impl InMemoryIndex {
         }
     }
 
-    pub(crate) fn try_execute_root<S>(
+    /// Try to execute the plan root via an optimized fast path.
+    ///
+    /// Returns `Ok(true)` if handled, `Ok(false)` to fall through to the
+    /// general evaluator. The `filter` parameter is threaded to recursive
+    /// calls (e.g. `ConstantScore` → `evaluate_node`) but is not consulted
+    /// on leaf fast paths (`Term`) because those only fire when the root is
+    /// a bare `Term` node with no `ExternalFilter` wrapping. Filter dispatch
+    /// is node-mediated via `ExternalFilter` nodes in the general evaluator.
+    pub(crate) fn try_execute_root<S, F>(
         &self,
         plan: &ExecutionPlan,
         scoring: SearchScorer,
         collectors: &mut S,
         stats: &mut ExecutionStats,
         allow_pruning: bool,
+        filter: &F,
     ) -> Result<bool, IndexError>
     where
         S: Collector<u32> + ?Sized,
+        F: FilterEvaluator<u32>,
     {
         let Some(node) = plan.program.get(plan.program.root()) else {
             return Ok(true);
         };
         match node {
             QueryNode::Term { field, term, boost } => {
+                debug_assert!(
+                    filter.slots().is_empty(),
+                    "Term fast path fired with active filter slots; \
+                     ensure plan() was called with the same filter as execute()"
+                );
                 self.collect_term(
                     *field,
                     *term,
@@ -435,7 +477,8 @@ impl InMemoryIndex {
                 Ok(true)
             }
             QueryNode::ConstantScore { child, score } => {
-                let mut result = self.evaluate_node(*child, &plan.program, scoring, stats)?;
+                let mut result =
+                    self.evaluate_node(*child, &plan.program, scoring, filter, stats)?;
                 result.scores.clear();
                 let score = Score::try_from(*score).unwrap_or(Score::ZERO);
                 if allow_pruning && collectors.can_skip(score) {
@@ -447,32 +490,45 @@ impl InMemoryIndex {
                 }
                 Ok(true)
             }
+            QueryNode::Filter { .. } | QueryNode::ExternalFilter { .. } => Ok(false),
             _ => Ok(false),
         }
     }
 
-    pub(crate) fn try_execute_root_unscored<S>(
+    /// Unscored variant of [`try_execute_root`](Self::try_execute_root).
+    ///
+    /// Same fast-path semantics: `filter` is threaded to recursive calls but
+    /// not consulted on the bare `Term` leaf path.
+    pub(crate) fn try_execute_root_unscored<S, F>(
         &self,
         plan: &ExecutionPlan,
         collectors: &mut S,
         stats: &mut ExecutionStats,
+        filter: &F,
     ) -> Result<bool, IndexError>
     where
         S: Collector<u32> + ?Sized,
+        F: FilterEvaluator<u32>,
     {
         let Some(node) = plan.program.get(plan.program.root()) else {
             return Ok(true);
         };
         match node {
             QueryNode::Term { term, .. } => {
+                debug_assert!(
+                    filter.slots().is_empty(),
+                    "Term fast path fired with active filter slots; \
+                     ensure plan() was called with the same filter as execute()"
+                );
                 self.collect_term_docs(*term, collectors, stats);
                 Ok(true)
             }
             QueryNode::ConstantScore { child, .. } => {
-                let matches = self.evaluate_matches_node(*child, &plan.program)?;
+                let matches = self.evaluate_matches_node(*child, &plan.program, filter)?;
                 Self::collect_matches(matches, collectors, stats);
                 Ok(true)
             }
+            QueryNode::Filter { .. } | QueryNode::ExternalFilter { .. } => Ok(false),
             _ => Ok(false),
         }
     }

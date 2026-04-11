@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::FieldId;
 use leit_index::{
-    ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, SearchScorer,
+    ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, SearchScorer,
 };
 use leit_query::{Planner, PlannerScratch, PlanningContext, QueryError};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
@@ -38,7 +38,7 @@ fn search(
     limit: usize,
 ) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
-    workspace.search(index, query, limit, SearchScorer::bm25())
+    workspace.search(index, query, limit, SearchScorer::bm25(), &NoFilter)
 }
 
 fn search_with_stats(
@@ -47,7 +47,7 @@ fn search_with_stats(
     limit: usize,
 ) -> Result<(Vec<leit_core::ScoredHit<u32>>, ExecutionStats), leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
-    let hits = workspace.search(index, query, limit, SearchScorer::bm25())?;
+    let hits = workspace.search(index, query, limit, SearchScorer::bm25(), &NoFilter)?;
     Ok((hits, workspace.last_stats()))
 }
 
@@ -314,11 +314,11 @@ fn count_uses_unscored_execution_path() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha")
+        .plan(&index, "alpha", &NoFilter)
         .expect("plan should succeed");
     let mut counter = CountCollector::new();
     workspace
-        .execute(&index, &plan, None, &mut counter)
+        .execute(&index, &plan, None, &NoFilter, &mut counter)
         .expect("count should succeed");
     let count = counter.finish();
     let stats = workspace.last_stats();
@@ -360,13 +360,19 @@ fn multi_collector_returns_topk_and_count_from_one_execution() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha")
+        .plan(&index, "alpha", &NoFilter)
         .expect("plan should succeed");
     let mut top_k = TopKCollector::new(1);
     let mut count = CountCollector::new();
     let mut collectors = collectors([&mut top_k, &mut count]);
     workspace
-        .execute(&index, &plan, Some(SearchScorer::bm25()), &mut collectors)
+        .execute(
+            &index,
+            &plan,
+            Some(SearchScorer::bm25()),
+            &NoFilter,
+            &mut collectors,
+        )
         .expect("multi-collector execution should succeed");
     let hits = top_k.finish();
     let count = count.finish();
@@ -414,7 +420,7 @@ fn multi_collector_uses_lowest_score_threshold_for_shared_pruning() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha")
+        .plan(&index, "alpha", &NoFilter)
         .expect("plan should succeed");
 
     let mut top1 = TopKCollector::new(1);
@@ -422,7 +428,13 @@ fn multi_collector_uses_lowest_score_threshold_for_shared_pruning() {
     let mut collectors = collectors([&mut top1, &mut top3]);
 
     workspace
-        .execute(&index, &plan, Some(SearchScorer::bm25()), &mut collectors)
+        .execute(
+            &index,
+            &plan,
+            Some(SearchScorer::bm25()),
+            &NoFilter,
+            &mut collectors,
+        )
         .expect("execution should succeed");
 
     let top1_hits = top1.finish();
@@ -448,11 +460,11 @@ fn score_aware_collectors_require_a_scorer() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha")
+        .plan(&index, "alpha", &NoFilter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(5);
     let error = workspace
-        .execute(&index, &plan, None, &mut collector)
+        .execute(&index, &plan, None, &NoFilter, &mut collector)
         .expect_err("score-aware collector should fail without scorer");
 
     assert_eq!(error, leit_index::IndexError::MissingScorer);
@@ -495,7 +507,13 @@ fn lower_level_planner_produces_empty_plan_for_unknown_term() {
     let mut workspace = ExecutionWorkspace::new();
     let mut collector = TopKCollector::new(10);
     workspace
-        .execute(&index, &plan, Some(SearchScorer::bm25()), &mut collector)
+        .execute(
+            &index,
+            &plan,
+            Some(SearchScorer::bm25()),
+            &NoFilter,
+            &mut collector,
+        )
         .expect("empty plan should execute");
     let results = collector.finish();
     assert!(results.is_empty(), "unknown term should match no documents");
@@ -530,7 +548,7 @@ fn search_bm25f(
     limit: usize,
 ) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
-    workspace.search(index, query, limit, SearchScorer::bm25f())
+    workspace.search(index, query, limit, SearchScorer::bm25f(), &NoFilter)
 }
 
 #[test]

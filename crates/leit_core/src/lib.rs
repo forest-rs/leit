@@ -105,6 +105,27 @@ impl CursorSlotId {
     }
 }
 
+/// Identifier for a filter slot during query execution.
+///
+/// Indexes into an application-provided [`FilterEvaluator`] at execution time.
+/// Unlike positional IDs, a default slot ID of 0 has no meaningful semantics,
+/// so this type does not derive `Default`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct FilterSlotId(u32);
+
+impl FilterSlotId {
+    /// Create a new filter slot ID.
+    pub const fn new(id: u32) -> Self {
+        Self(id)
+    }
+
+    /// Get the raw u32 value.
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+}
+
 /// Trait for entity identifiers.
 ///
 /// This trait is intentionally minimal - it does NOT require `Send + Sync`
@@ -116,6 +137,39 @@ impl EntityId for u32 {}
 impl EntityId for u64 {}
 impl EntityId for i32 {}
 impl EntityId for i64 {}
+
+/// Evaluates application-provided filter predicates during query execution.
+///
+/// Implementations dispatch on [`FilterSlotId`] to evaluate arbitrary predicates
+/// against candidate entities. The `id` is the same entity ID the caller
+/// supplied during index construction.
+pub trait FilterEvaluator<Id: EntityId> {
+    /// Evaluate whether the entity with the given ID passes the filter.
+    fn evaluate(&self, slot: FilterSlotId, id: &Id) -> bool;
+
+    /// Return the filter slots this evaluator handles.
+    ///
+    /// These slots are used during planning to wrap the query with
+    /// `ExternalFilter` nodes. An empty slice means no filtering.
+    fn slots(&self) -> &[FilterSlotId];
+}
+
+/// No-op filter evaluator. All candidates pass.
+///
+/// When used as a type parameter, the compiler inlines the constant `true`
+/// return and eliminates all filter checks via monomorphization.
+#[derive(Clone, Copy, Debug)]
+pub struct NoFilter;
+
+impl<Id: EntityId> FilterEvaluator<Id> for NoFilter {
+    fn evaluate(&self, _slot: FilterSlotId, _id: &Id) -> bool {
+        true
+    }
+
+    fn slots(&self) -> &[FilterSlotId] {
+        &[]
+    }
+}
 
 /// A retrieval score.
 ///

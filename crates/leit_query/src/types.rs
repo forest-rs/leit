@@ -401,9 +401,9 @@ impl UserQueryNode {
 /// Execution-facing query program produced by the Phase 1 planner.
 #[derive(Clone, Debug, PartialEq)]
 pub struct QueryProgram {
-    nodes: Vec<QueryNode>,
-    root: QueryNodeId,
-    max_depth: usize,
+    pub(crate) nodes: Vec<QueryNode>,
+    pub(crate) root: QueryNodeId,
+    pub(crate) max_depth: usize,
 }
 
 impl QueryProgram {
@@ -471,7 +471,10 @@ fn validate_planned_program(nodes: &[QueryNode], root: QueryNodeId) -> Result<()
                     }
                 }
             }
-            QueryNode::Not { child } | QueryNode::ConstantScore { child, .. } => {
+            QueryNode::Not { child }
+            | QueryNode::ConstantScore { child, .. }
+            | QueryNode::Filter { input: child, .. }
+            | QueryNode::ExternalFilter { input: child, .. } => {
                 if !contains(*child) {
                     return Err(QueryError::InvalidProgramReference {
                         parent,
@@ -557,13 +560,38 @@ pub enum QueryNode {
         /// Score multiplier.
         score: f32,
     },
+    /// Structured predicate filter. Evaluates `input` for scoring, then
+    /// accepts/rejects candidates based on `predicate`.
+    ///
+    /// Does not contribute to score. Native evaluation deferred until
+    /// columnar storage lands (Phase 3).
+    Filter {
+        /// The scoring subquery.
+        input: QueryNodeId,
+        /// The structured predicate.
+        predicate: FilterPredicate,
+    },
+    /// Application-provided filter resolved at execution time via
+    /// [`FilterEvaluator`](leit_core::FilterEvaluator). Evaluates `input` for scoring, then calls
+    /// the evaluator with `slot` to accept/reject candidates.
+    ///
+    /// Does not contribute to score.
+    ExternalFilter {
+        /// The scoring subquery.
+        input: QueryNodeId,
+        /// The filter slot identifier.
+        slot: leit_core::FilterSlotId,
+    },
 }
 
 impl QueryNode {
     fn children(&self) -> &[QueryNodeId] {
         match self {
             Self::And { children, .. } | Self::Or { children, .. } => children,
-            Self::Not { child } | Self::ConstantScore { child, .. } => core::slice::from_ref(child),
+            Self::Not { child }
+            | Self::ConstantScore { child, .. }
+            | Self::Filter { input: child, .. }
+            | Self::ExternalFilter { input: child, .. } => core::slice::from_ref(child),
             Self::Term { .. } => &[],
         }
     }
@@ -792,4 +820,244 @@ pub struct ExecutionPlan {
     pub cost: u32,
     /// Required execution features.
     pub required_features: FeatureSet,
+}
+
+impl ExecutionPlan {
+    /// Wrap the current plan root in an [`ExternalFilter`](QueryNode::ExternalFilter) node.
+    ///
+    /// This is a post-planning transformation. It appends an `ExternalFilter`
+    /// node to the program, updates the root, and recomputes metadata:
+    ///
+    /// - `program.root` — replaced with the new node ID
+    /// - `program.max_depth` — incremented by 1
+    /// - `cost` — recomputed as `program.nodes.len()`
+    /// - `selectivity` — recomputed as `1.0 / node_count`
+    /// - `required_features` — preserved
+    pub fn wrap_external_filter(&mut self, slot: leit_core::FilterSlotId) -> &mut Self {
+        let old_root = self.program.root;
+        let new_id = QueryNodeId::new(
+            u32::try_from(self.program.nodes.len()).expect("query program exceeded u32 node IDs"),
+        );
+        self.program.nodes.push(QueryNode::ExternalFilter {
+            input: old_root,
+            slot,
+        });
+        self.program.root = new_id;
+        self.program.max_depth += 1;
+
+        let node_count = self.program.nodes.len();
+        debug_assert!(node_count > 0, "node_count cannot be zero after push");
+        self.cost = u32::try_from(node_count).expect("node count exceeded u32");
+        self.selectivity = 1.0 / node_count as f32;
+
+        debug_assert!(
+            validate_planned_program(&self.program.nodes, self.program.root).is_ok(),
+            "wrap_external_filter produced invalid program"
+        );
+        self
+    }
+}
+
+/// A typed filter value for structured predicates.
+///
+/// `F64` values must be finite. Non-finite values (NaN, infinity) are not
+/// meaningful as filter predicates and may produce unexpected equality/ordering
+/// behavior.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FilterValue {
+    /// Unsigned 64-bit integer.
+    U64(u64),
+    /// Signed 64-bit integer.
+    I64(i64),
+    /// 64-bit floating point (must be finite).
+    F64(f64),
+    /// String value.
+    Str(alloc::string::String),
+}
+
+/// A structured field predicate for columnar data.
+///
+/// These predicates define the filter IR. Native evaluation requires
+/// columnar storage (Phase 3). Until then, constructing a [`QueryNode::Filter`]
+/// is valid, but executing it returns an error.
+///
+/// Boolean combinators (`And`, `Or`, `Not`) compose predicates within a
+/// single `Filter` node, avoiding double-evaluation of the input subquery.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FilterPredicate {
+    /// Exact equality on a field value.
+    Eq {
+        /// The field to filter on.
+        field: leit_core::FieldId,
+        /// The value to compare against.
+        value: FilterValue,
+    },
+    /// Inclusive range predicate. Either bound may be omitted for open-ended ranges.
+    Range {
+        /// The field to filter on.
+        field: leit_core::FieldId,
+        /// Lower bound (inclusive), or `None` for unbounded.
+        low: Option<FilterValue>,
+        /// Upper bound (inclusive), or `None` for unbounded.
+        high: Option<FilterValue>,
+    },
+    /// Set membership predicate.
+    In {
+        /// The field to filter on.
+        field: leit_core::FieldId,
+        /// The set of values to match against.
+        values: Vec<FilterValue>,
+    },
+    /// Boolean conjunction — all child predicates must match.
+    And(Vec<Self>),
+    /// Boolean disjunction — at least one child predicate must match.
+    Or(Vec<Self>),
+    /// Boolean negation.
+    Not(alloc::boxed::Box<Self>),
+}
+
+#[cfg(test)]
+mod execution_plan_tests {
+    use super::*;
+    use leit_core::{FieldId, FilterSlotId, TermId};
+
+    fn simple_term_plan() -> ExecutionPlan {
+        let nodes = vec![QueryNode::Term {
+            field: FieldId::new(0),
+            term: TermId::new(0),
+            boost: 1.0,
+        }];
+        ExecutionPlan {
+            program: QueryProgram::new(nodes, QueryNodeId::new(0), 1),
+            selectivity: 1.0,
+            cost: 1,
+            required_features: FeatureSet::basic(),
+        }
+    }
+
+    #[test]
+    fn wrap_external_filter_updates_root() {
+        let mut plan = simple_term_plan();
+        let old_root = plan.program.root();
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        assert_ne!(plan.program.root(), old_root);
+    }
+
+    #[test]
+    fn wrap_external_filter_increments_depth() {
+        let mut plan = simple_term_plan();
+        let old_depth = plan.program.max_depth();
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        assert_eq!(plan.program.max_depth(), old_depth + 1);
+    }
+
+    #[test]
+    fn wrap_external_filter_recomputes_cost() {
+        let mut plan = simple_term_plan();
+        assert_eq!(plan.cost, 1);
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        assert_eq!(plan.cost, 2);
+        plan.wrap_external_filter(FilterSlotId::new(1));
+        assert_eq!(plan.cost, 3);
+    }
+
+    #[test]
+    fn wrap_external_filter_recomputes_selectivity() {
+        let mut plan = simple_term_plan();
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        let expected = 1.0 / plan.program.node_count() as f32;
+        assert!((plan.selectivity - expected).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn wrap_external_filter_preserves_required_features() {
+        let mut plan = simple_term_plan();
+        let features_before = plan.required_features;
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        assert_eq!(plan.required_features, features_before);
+    }
+
+    #[test]
+    fn wrapped_plan_passes_validation() {
+        let mut plan = simple_term_plan();
+        plan.wrap_external_filter(FilterSlotId::new(0));
+        plan.wrap_external_filter(FilterSlotId::new(1));
+        assert!(plan.program.get(plan.program.root()).is_some());
+    }
+
+    #[test]
+    fn filter_node_passes_validation() {
+        let nodes = vec![
+            QueryNode::Term {
+                field: FieldId::new(0),
+                term: TermId::new(0),
+                boost: 1.0,
+            },
+            QueryNode::Filter {
+                input: QueryNodeId::new(0),
+                predicate: FilterPredicate::Eq {
+                    field: FieldId::new(0),
+                    value: FilterValue::U64(42),
+                },
+            },
+        ];
+        let program = QueryProgram::try_new(nodes, QueryNodeId::new(1), 2);
+        assert!(program.is_ok());
+    }
+
+    #[test]
+    fn external_filter_node_passes_validation() {
+        let nodes = vec![
+            QueryNode::Term {
+                field: FieldId::new(0),
+                term: TermId::new(0),
+                boost: 1.0,
+            },
+            QueryNode::ExternalFilter {
+                input: QueryNodeId::new(0),
+                slot: FilterSlotId::new(0),
+            },
+        ];
+        let program = QueryProgram::try_new(nodes, QueryNodeId::new(1), 2);
+        assert!(program.is_ok());
+    }
+
+    #[test]
+    fn filter_children_returns_input() {
+        let node = QueryNode::Filter {
+            input: QueryNodeId::new(5),
+            predicate: FilterPredicate::Eq {
+                field: FieldId::new(0),
+                value: FilterValue::I64(0),
+            },
+        };
+        assert_eq!(node.children(), &[QueryNodeId::new(5)]);
+    }
+
+    #[test]
+    fn external_filter_children_returns_input() {
+        let node = QueryNode::ExternalFilter {
+            input: QueryNodeId::new(3),
+            slot: FilterSlotId::new(0),
+        };
+        assert_eq!(node.children(), &[QueryNodeId::new(3)]);
+    }
+
+    #[test]
+    fn filter_predicate_boolean_combinators() {
+        let eq = FilterPredicate::Eq {
+            field: FieldId::new(0),
+            value: FilterValue::Str("article".into()),
+        };
+        let range = FilterPredicate::Range {
+            field: FieldId::new(1),
+            low: None,
+            high: Some(FilterValue::U64(1000)),
+        };
+        let and = FilterPredicate::And(alloc::vec![eq.clone(), range]);
+        let not = FilterPredicate::Not(alloc::boxed::Box::new(eq));
+
+        // Just verify they construct and compare correctly
+        assert_ne!(and, not);
+    }
 }
