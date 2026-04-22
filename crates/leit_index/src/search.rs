@@ -21,7 +21,10 @@ pub struct ExecutionWorkspace {
 /// Observability counters for one query execution.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ExecutionStats {
-    /// Number of postings individually scored during execution.
+    /// Number of posting entries visited by scoring execution paths.
+    ///
+    /// Aggregate scorers may use a visited posting to build per-document field
+    /// stats rather than scoring that posting independently.
     pub scored_postings: usize,
     /// Number of postings blocks skipped by threshold pruning on the current
     /// direct root-term execution path.
@@ -86,6 +89,61 @@ impl SearchScorer {
             }
         }
     }
+
+    pub(crate) fn score_term_fields(
+        self,
+        field_hits: &[FieldHit],
+        avg_doc_length: f32,
+        doc_count: u32,
+        doc_frequency: u32,
+        boost: f32,
+    ) -> Score {
+        let mut score = match self {
+            Self::Bm25(scorer) => {
+                let mut score = Score::ZERO;
+                for hit in field_hits {
+                    let field_score = scorer.score(&ScoringStats {
+                        term_frequency: hit.term_frequency,
+                        doc_length: hit.field_length,
+                        avg_doc_length: hit.avg_field_length,
+                        doc_count,
+                        doc_frequency,
+                        ..ScoringStats::new()
+                    });
+                    score += field_score;
+                }
+                score
+            }
+            Self::Bm25F(scorer) => {
+                if field_hits.is_empty() {
+                    return Score::ZERO;
+                }
+                let mut fields = Vec::with_capacity(field_hits.len());
+                for hit in field_hits {
+                    fields.push(FieldStats {
+                        field_id: hit.field,
+                        term_frequency: hit.term_frequency,
+                        field_length: hit.field_length,
+                        weight: hit.weight,
+                    });
+                }
+                scorer.score(&fields, avg_doc_length, doc_count, doc_frequency)
+            }
+        };
+        if (boost - 1.0).abs() > f32::EPSILON {
+            score *= boost;
+        }
+        score
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FieldHit {
+    pub(crate) field: FieldId,
+    pub(crate) term_frequency: u32,
+    pub(crate) field_length: u32,
+    pub(crate) avg_field_length: f32,
+    pub(crate) weight: f32,
 }
 
 impl ExecutionWorkspace {

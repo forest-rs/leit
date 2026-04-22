@@ -141,11 +141,15 @@ policy concern rather than an index concern. The index owns corpus facts such
 as postings, field statistics, and document lengths. Execution combines those
 facts with an explicit scoring policy.
 
-The BM25F scorer is available, but cross-field aggregation is not yet wired
-into the index execution path. Each field match is currently scored
-independently and the per-field scores are summed. True BM25F aggregation
-(collecting per-field term frequencies before a single scoring call) and
-configurable per-field weights are Phase 2 work.
+The BM25F scorer is wired into the index execution path for default-field
+expansions of a single term. The planner preserves the full searched default
+field set separately from the resolved term children, so execution can
+aggregate per document before a single BM25F scoring call and add
+zero-frequency field stats for searched fields that are present in the
+document but do not contain the term. Explicit boolean `OR` remains a boolean
+operator and sums child scores. Configurable per-field weights are supported via
+`PlanningContext::with_field_weights`; fields default to weight `1.0` when
+not explicitly configured.
 
 That distinction should remain true as Leit grows:
 
@@ -285,7 +289,6 @@ feature requires rewriting the kernel center, the design should be reconsidered.
   core ID types (`BlockId`, `FilterExprId`, `SegmentOrd`, `SegmentLocalDocId`)
   as their consumers arrive
 - add more analyzers and tokenizers beyond whitespace tokenization
-- add configurable per-field weights for BM25F scoring
 - evaluate additional scoring families beyond BM25 and BM25F
 - define how vector candidate sources and embedding-based ranking fit at the
   kernel boundary without overfitting the execution model to postings

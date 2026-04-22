@@ -11,6 +11,7 @@ use leit_index::{
     ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, SearchScorer,
 };
 use leit_query::{Planner, PlannerScratch, PlanningContext, QueryError};
+use leit_score::{Bm25FScorer, FieldStats};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
 fn test_analyzers() -> FieldAnalyzers {
@@ -551,13 +552,63 @@ fn search_bm25f(
     workspace.search(index, query, limit, SearchScorer::bm25f(), &NoFilter)
 }
 
+fn search_bm25f_with_field_weights(
+    index: &InMemoryIndex,
+    query: &str,
+    limit: usize,
+    field_weights: std::collections::BTreeMap<FieldId, f32>,
+) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
+    let planner = Planner::new();
+    let context = PlanningContext::new(index, index)
+        .with_default_fields(vec![FieldId::new(1), FieldId::new(2)])
+        .with_field_weights(field_weights);
+    let mut scratch = PlannerScratch::new();
+    let plan = planner
+        .plan(query, &context, &mut scratch)
+        .map_err(leit_index::IndexError::Query)?;
+    let mut workspace = ExecutionWorkspace::new();
+    let mut top_k = TopKCollector::new(limit);
+    workspace.execute(
+        index,
+        &plan,
+        Some(SearchScorer::bm25f()),
+        &NoFilter,
+        &mut top_k,
+    )?;
+    Ok(top_k.finish())
+}
+
+fn search_bm25f_with_default_boost(
+    index: &InMemoryIndex,
+    query: &str,
+    limit: usize,
+    default_boost: f32,
+) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
+    let planner = Planner::new();
+    let context = PlanningContext::new(index, index)
+        .with_default_fields(vec![FieldId::new(1), FieldId::new(2)])
+        .with_default_boost(default_boost);
+    let mut scratch = PlannerScratch::new();
+    let plan = planner
+        .plan(query, &context, &mut scratch)
+        .map_err(leit_index::IndexError::Query)?;
+    let mut workspace = ExecutionWorkspace::new();
+    let mut top_k = TopKCollector::new(limit);
+    workspace.execute(
+        index,
+        &plan,
+        Some(SearchScorer::bm25f()),
+        &NoFilter,
+        &mut top_k,
+    )?;
+    Ok(top_k.finish())
+}
+
 #[test]
-fn bm25f_scores_cross_field_matches_independently() {
-    // BM25F scores each field independently (cross-field aggregation is Phase 2)
+fn bm25f_aggregates_field_stats_for_cross_field_matches() {
     let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
     builder.register_field_alias(FieldId::new(1), "title");
     builder.register_field_alias(FieldId::new(2), "body");
-    // Doc 1 has "rust" in both fields
     builder
         .index_document(
             1,
@@ -567,22 +618,388 @@ fn bm25f_scores_cross_field_matches_independently() {
             ],
         )
         .expect("document should index");
-    // Doc 2 has "rust" only in title, not in body
     builder
-        .index_document(2, &[(FieldId::new(1), "rust retrieval")])
+        .index_document(
+            2,
+            &[
+                (FieldId::new(1), "memory safety"),
+                (FieldId::new(2), "ownership prevents bugs"),
+            ],
+        )
         .expect("document should index");
     let index = builder.build_index();
 
-    // BM25F should produce valid scores for both documents
     let hits = search_bm25f(&index, "rust", 10).expect("bm25f search should succeed");
 
-    assert_eq!(hits.len(), 2, "both docs should match");
+    assert_eq!(hits.len(), 1, "only doc 1 should match");
+    assert_eq!(hits[0].id, 1);
+
+    let expected = Bm25FScorer::new().score(
+        &[
+            FieldStats {
+                field_id: FieldId::new(1),
+                term_frequency: 1,
+                field_length: 2,
+                weight: 1.0,
+            },
+            FieldStats {
+                field_id: FieldId::new(2),
+                term_frequency: 1,
+                field_length: 3,
+                weight: 1.0,
+            },
+        ],
+        5.0,
+        2,
+        1,
+    );
+
+    let delta = (hits[0].score.as_f32() - expected.as_f32()).abs();
+    assert!(
+        delta <= f32::EPSILON,
+        "expected aggregated BM25F score {}, got {}",
+        expected.as_f32(),
+        hits[0].score.as_f32()
+    );
+}
+
+#[test]
+fn bm25f_uses_unique_document_frequency_across_fields() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(
+            1,
+            &[
+                (FieldId::new(1), "rust programming"),
+                (FieldId::new(2), "rust systems"),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let hits = search_bm25f(&index, "rust", 10).expect("bm25f search should succeed");
+
+    assert_eq!(hits.len(), 1, "document should match");
     assert!(
         hits[0].score > leit_core::Score::ZERO,
-        "bm25f should produce positive score"
+        "unique document frequency should not zero a valid two-field match"
     );
+}
+
+#[test]
+fn bm25f_default_boost_multiplies_final_aggregate_score() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(
+            1,
+            &[
+                (FieldId::new(1), "rust programming"),
+                (FieldId::new(2), "rust systems language"),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            2,
+            &[
+                (FieldId::new(1), "memory safety"),
+                (FieldId::new(2), "ownership prevents bugs"),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let unboosted =
+        search_bm25f_with_default_boost(&index, "rust", 10, 1.0).expect("search should succeed");
+    let boosted =
+        search_bm25f_with_default_boost(&index, "rust", 10, 2.0).expect("search should succeed");
+
+    assert_eq!(unboosted.len(), 1);
+    assert_eq!(boosted.len(), 1);
+    assert_eq!(unboosted[0].id, boosted[0].id);
+    let expected = unboosted[0].score.as_f32() * 2.0;
+    let delta = (boosted[0].score.as_f32() - expected).abs();
     assert!(
-        hits[1].score > leit_core::Score::ZERO,
-        "bm25f should produce positive score"
+        delta <= f32::EPSILON,
+        "boost should multiply final score: expected {expected}, got {}",
+        boosted[0].score.as_f32()
+    );
+}
+
+#[test]
+fn bm25f_duplicate_same_field_or_falls_back_to_generic_or_scoring() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(
+            1,
+            &[
+                (FieldId::new(1), "rust programming"),
+                (FieldId::new(2), "systems language"),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let single = search_bm25f(&index, "title:rust", 10).expect("search should succeed");
+    let duplicate =
+        search_bm25f(&index, "title:rust OR title:rust", 10).expect("search should succeed");
+
+    assert_eq!(single.len(), 1);
+    assert_eq!(duplicate.len(), 1);
+    assert_eq!(single[0].id, duplicate[0].id);
+    let expected = single[0].score.as_f32() * 2.0;
+    let delta = (duplicate[0].score.as_f32() - expected).abs();
+    assert!(
+        delta <= f32::EPSILON,
+        "duplicate same-field OR should use generic OR summing: expected {expected}, got {}",
+        duplicate[0].score.as_f32()
+    );
+}
+
+#[test]
+fn bm25f_explicit_cross_field_or_uses_generic_or_scoring() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(
+            1,
+            &[
+                (FieldId::new(1), "rust programming"),
+                (FieldId::new(2), "rust systems language"),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            2,
+            &[
+                (FieldId::new(1), "memory safety"),
+                (FieldId::new(2), "ownership prevents bugs"),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let title = search_bm25f(&index, "title:rust", 10).expect("search should succeed");
+    let body = search_bm25f(&index, "body:rust", 10).expect("search should succeed");
+    let explicit_or =
+        search_bm25f(&index, "title:rust OR body:rust", 10).expect("search should succeed");
+
+    assert_eq!(title.len(), 1);
+    assert_eq!(body.len(), 1);
+    assert_eq!(explicit_or.len(), 1);
+    assert_eq!(title[0].id, explicit_or[0].id);
+    assert_eq!(body[0].id, explicit_or[0].id);
+    let expected = title[0].score.as_f32() + body[0].score.as_f32();
+    let delta = (explicit_or[0].score.as_f32() - expected).abs();
+    assert!(
+        delta <= f32::EPSILON,
+        "explicit cross-field OR should sum child scores: expected {expected}, got {}",
+        explicit_or[0].score.as_f32()
+    );
+}
+
+#[test]
+fn bm25f_includes_non_hit_field_lengths_for_matching_documents() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(1, &[(FieldId::new(1), "rust"), (FieldId::new(2), "short")])
+        .expect("document should index");
+    builder
+        .index_document(
+            2,
+            &[
+                (FieldId::new(1), "rust"),
+                (
+                    FieldId::new(2),
+                    "long long long long long long long long long long",
+                ),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            3,
+            &[
+                (FieldId::new(1), "memory"),
+                (FieldId::new(2), "rust elsewhere"),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let hits = search_bm25f(&index, "rust", 10).expect("search should succeed");
+
+    let doc1_score = hits
+        .iter()
+        .find(|hit| hit.id == 1)
+        .expect("doc 1 should match")
+        .score;
+    let doc2_score = hits
+        .iter()
+        .find(|hit| hit.id == 2)
+        .expect("doc 2 should match")
+        .score;
+    assert!(
+        doc1_score > doc2_score,
+        "non-hit field lengths should affect BM25F aggregate scores"
+    );
+}
+
+#[test]
+fn bm25f_includes_default_field_lengths_when_term_resolves_in_one_field() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(1, &[(FieldId::new(1), "rust"), (FieldId::new(2), "short")])
+        .expect("document should index");
+    builder
+        .index_document(
+            2,
+            &[
+                (FieldId::new(1), "rust"),
+                (
+                    FieldId::new(2),
+                    "long long long long long long long long long long",
+                ),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let hits = search_bm25f(&index, "rust", 10).expect("search should succeed");
+
+    let doc1_score = hits
+        .iter()
+        .find(|hit| hit.id == 1)
+        .expect("doc 1 should match")
+        .score;
+    let doc2_score = hits
+        .iter()
+        .find(|hit| hit.id == 2)
+        .expect("doc 2 should match")
+        .score;
+    assert!(
+        doc1_score > doc2_score,
+        "body lengths should affect BM25F even when rust resolves only in title"
+    );
+}
+
+#[test]
+fn bm25f_field_weights_match_scorer_output() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(
+            1,
+            &[
+                (FieldId::new(1), "rust programming"),
+                (FieldId::new(2), "rust systems language"),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            2,
+            &[
+                (FieldId::new(1), "memory safety"),
+                (FieldId::new(2), "ownership prevents bugs"),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let mut weights = std::collections::BTreeMap::new();
+    weights.insert(FieldId::new(1), 2.0);
+    weights.insert(FieldId::new(2), 0.5);
+    let hits = search_bm25f_with_field_weights(&index, "rust", 10, weights)
+        .expect("search should succeed");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, 1);
+
+    let expected = Bm25FScorer::new().score(
+        &[
+            FieldStats {
+                field_id: FieldId::new(1),
+                term_frequency: 1,
+                field_length: 2,
+                weight: 2.0,
+            },
+            FieldStats {
+                field_id: FieldId::new(2),
+                term_frequency: 1,
+                field_length: 3,
+                weight: 0.5,
+            },
+        ],
+        5.0, // avg_doc_length = avg(title) + avg(body) = 2.0 + 3.0
+        2,   // doc_count
+        1,   // doc_frequency (only doc 1 matches)
+    );
+
+    let delta = (hits[0].score.as_f32() - expected.as_f32()).abs();
+    assert!(
+        delta <= f32::EPSILON,
+        "expected weighted BM25F score {}, got {}",
+        expected.as_f32(),
+        hits[0].score.as_f32()
+    );
+}
+
+#[test]
+fn bm25f_field_weights_affect_scoring() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(
+            1,
+            &[
+                (FieldId::new(1), "rust programming"),
+                (FieldId::new(2), "systems language"),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            2,
+            &[
+                (FieldId::new(1), "memory safety"),
+                (FieldId::new(2), "rust systems"),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let equal = search_bm25f(&index, "rust", 10).expect("search should succeed");
+    let mut title_heavy = std::collections::BTreeMap::new();
+    title_heavy.insert(FieldId::new(1), 3.0);
+    title_heavy.insert(FieldId::new(2), 1.0);
+    let weighted = search_bm25f_with_field_weights(&index, "rust", 10, title_heavy)
+        .expect("search should succeed");
+
+    assert_eq!(equal.len(), 2);
+    assert_eq!(weighted.len(), 2);
+    assert_eq!(
+        weighted[0].id, 1,
+        "title-heavy weighting should rank doc 1 first"
+    );
+    let equal_doc1 = equal.iter().find(|h| h.id == 1).unwrap().score;
+    let weighted_doc1 = weighted.iter().find(|h| h.id == 1).unwrap().score;
+    assert_ne!(
+        equal_doc1, weighted_doc1,
+        "field weights should change the aggregate score"
     );
 }
