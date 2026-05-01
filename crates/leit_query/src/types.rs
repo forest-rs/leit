@@ -674,12 +674,37 @@ impl<'a> PlanningContext<'a> {
 
     /// Set per-field BM25F weight overrides.
     ///
-    /// Fields absent from the map default to weight 1.0 at execution time.
+    /// Fields absent from the map default to weight 1.0 at execution time. Weights
+    /// must be finite and non-negative.
     #[must_use]
     pub fn with_field_weights(mut self, weights: BTreeMap<leit_core::FieldId, f32>) -> Self {
+        validate_field_weights(&weights)
+            .expect("BM25F field weights must be finite and non-negative");
         self.field_weights = weights;
         self
     }
+
+    /// Try to set per-field BM25F weight overrides.
+    ///
+    /// Fields absent from the map default to weight 1.0 at execution time. Weights
+    /// must be finite and non-negative.
+    pub fn try_with_field_weights(
+        mut self,
+        weights: BTreeMap<leit_core::FieldId, f32>,
+    ) -> Result<Self, QueryError> {
+        validate_field_weights(&weights)?;
+        self.field_weights = weights;
+        Ok(self)
+    }
+}
+
+fn validate_field_weights(weights: &BTreeMap<leit_core::FieldId, f32>) -> Result<(), QueryError> {
+    for (&field, &weight) in weights {
+        if !weight.is_finite() || weight < 0.0 {
+            return Err(QueryError::InvalidFieldWeight { field });
+        }
+    }
+    Ok(())
 }
 
 impl fmt::Debug for PlanningContext<'_> {
@@ -759,6 +784,11 @@ pub enum QueryError {
         /// The unreachable node identifier.
         node: QueryNodeId,
     },
+    /// A BM25F field weight was not finite and non-negative.
+    InvalidFieldWeight {
+        /// The field whose configured weight was invalid.
+        field: leit_core::FieldId,
+    },
 }
 
 impl core::error::Error for QueryError {}
@@ -807,6 +837,11 @@ impl fmt::Display for QueryError {
                 f,
                 "planned query program contains unreachable node {}",
                 node.as_u32()
+            ),
+            Self::InvalidFieldWeight { field } => write!(
+                f,
+                "invalid BM25F field weight for field {}: weights must be finite and non-negative",
+                field.as_u32()
             ),
         }
     }

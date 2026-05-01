@@ -1,6 +1,7 @@
 // Copyright 2026 the Leit Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use leit_collect::{Collector, TopKCollector};
@@ -185,6 +186,33 @@ impl ExecutionWorkspace {
         Ok(plan)
     }
 
+    /// Plan a textual query with BM25F field-weight overrides.
+    ///
+    /// Fields absent from `field_weights` default to weight `1.0`. Invalid
+    /// weights are rejected during planning.
+    pub fn plan_with_field_weights<F: FilterEvaluator<u32>>(
+        &mut self,
+        index: &InMemoryIndex,
+        query: &str,
+        field_weights: BTreeMap<FieldId, f32>,
+        filter: &F,
+    ) -> Result<ExecutionPlan, IndexError> {
+        self.clear();
+        let planner = Planner::new();
+        let default_fields = index.default_fields();
+        let context = PlanningContext::new(index, index)
+            .with_default_fields(default_fields)
+            .try_with_field_weights(field_weights)
+            .map_err(IndexError::Query)?;
+        let mut plan = planner
+            .plan(query, &context, &mut self.planner)
+            .map_err(IndexError::Query)?;
+        for slot in filter.slots() {
+            plan.wrap_external_filter(*slot);
+        }
+        Ok(plan)
+    }
+
     /// Execute a planned query with an optional scorer, filter evaluator, and collectors.
     ///
     /// The `filter` evaluator is dispatched by [`ExternalFilter`](leit_query::QueryNode::ExternalFilter)
@@ -256,6 +284,29 @@ impl ExecutionWorkspace {
         let plan = self.plan(index, query, filter)?;
         let mut collector = TopKCollector::new(limit);
         self.execute(index, &plan, Some(scorer), filter, &mut collector)?;
+        Ok(collector.finish())
+    }
+
+    /// Plan and execute a textual BM25F query with field-weight overrides.
+    ///
+    /// Fields absent from `field_weights` default to weight `1.0`.
+    pub fn search_bm25f_with_field_weights<F: FilterEvaluator<u32>>(
+        &mut self,
+        index: &InMemoryIndex,
+        query: &str,
+        limit: usize,
+        field_weights: BTreeMap<FieldId, f32>,
+        filter: &F,
+    ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
+        let plan = self.plan_with_field_weights(index, query, field_weights, filter)?;
+        let mut collector = TopKCollector::new(limit);
+        self.execute(
+            index,
+            &plan,
+            Some(SearchScorer::bm25f()),
+            filter,
+            &mut collector,
+        )?;
         Ok(collector.finish())
     }
 }

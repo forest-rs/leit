@@ -294,6 +294,63 @@ fn term_search_skips_noncompetitive_blocks_once_threshold_rises() {
 }
 
 #[test]
+fn bm25_single_child_default_field_expansion_uses_term_pruning() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder.register_field_alias(FieldId::new(1), "title");
+    builder.register_field_alias(FieldId::new(2), "body");
+    builder
+        .index_document(
+            1,
+            &[
+                (FieldId::new(1), "alpha alpha alpha alpha"),
+                (FieldId::new(2), "body-only"),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            2,
+            &[
+                (FieldId::new(1), "alpha alpha alpha"),
+                (FieldId::new(2), "body-only"),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            3,
+            &[
+                (
+                    FieldId::new(1),
+                    "alpha noise noise noise noise noise noise noise noise noise",
+                ),
+                (FieldId::new(2), "body-only"),
+            ],
+        )
+        .expect("document should index");
+    builder
+        .index_document(
+            4,
+            &[
+                (
+                    FieldId::new(1),
+                    "alpha noise noise noise noise noise noise noise noise noise noise noise",
+                ),
+                (FieldId::new(2), "body-only"),
+            ],
+        )
+        .expect("document should index");
+    let index = builder.build_index();
+
+    let (hits, stats) = search_with_stats(&index, "alpha", 1).expect("search should succeed");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id, 1);
+    assert!(stats.scored_postings < 4);
+    assert!(stats.skipped_blocks > 0);
+}
+
+#[test]
 fn count_uses_unscored_execution_path() {
     let mut builder = InMemoryIndexBuilder::new(test_analyzers());
     builder
@@ -558,24 +615,8 @@ fn search_bm25f_with_field_weights(
     limit: usize,
     field_weights: std::collections::BTreeMap<FieldId, f32>,
 ) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
-    let planner = Planner::new();
-    let context = PlanningContext::new(index, index)
-        .with_default_fields(vec![FieldId::new(1), FieldId::new(2)])
-        .with_field_weights(field_weights);
-    let mut scratch = PlannerScratch::new();
-    let plan = planner
-        .plan(query, &context, &mut scratch)
-        .map_err(leit_index::IndexError::Query)?;
     let mut workspace = ExecutionWorkspace::new();
-    let mut top_k = TopKCollector::new(limit);
-    workspace.execute(
-        index,
-        &plan,
-        Some(SearchScorer::bm25f()),
-        &NoFilter,
-        &mut top_k,
-    )?;
-    Ok(top_k.finish())
+    workspace.search_bm25f_with_field_weights(index, query, limit, field_weights, &NoFilter)
 }
 
 fn search_bm25f_with_default_boost(
@@ -955,6 +996,27 @@ fn bm25f_field_weights_match_scorer_output() {
         "expected weighted BM25F score {}, got {}",
         expected.as_f32(),
         hits[0].score.as_f32()
+    );
+}
+
+#[test]
+fn bm25f_high_level_field_weights_reject_invalid_values() {
+    let mut builder = InMemoryIndexBuilder::new(multi_field_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "rust")])
+        .expect("document should index");
+    let index = builder.build_index();
+    let mut weights = std::collections::BTreeMap::new();
+    weights.insert(FieldId::new(1), f32::INFINITY);
+
+    let error = search_bm25f_with_field_weights(&index, "rust", 10, weights)
+        .expect_err("invalid field weights should be rejected");
+
+    assert_eq!(
+        error,
+        leit_index::IndexError::Query(QueryError::InvalidFieldWeight {
+            field: FieldId::new(1)
+        })
     );
 }
 

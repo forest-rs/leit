@@ -388,3 +388,41 @@ fn test_planner_preserves_field_weights_in_term_expansion() {
         other => panic!("expected TermExpansion, got {other:?}"),
     }
 }
+
+#[test]
+fn test_planning_context_rejects_negative_field_weights() {
+    let dictionary = TestDictionary;
+    let fields = TestFieldRegistry;
+    let mut weights = BTreeMap::new();
+    weights.insert(TestFieldRegistry::title(), -1.0);
+
+    let error = PlanningContext::new(&dictionary, &fields)
+        .try_with_field_weights(weights)
+        .expect_err("negative weights should be rejected");
+
+    assert_eq!(
+        error,
+        QueryError::InvalidFieldWeight {
+            field: TestFieldRegistry::title()
+        }
+    );
+}
+
+#[test]
+fn test_planning_context_rejects_non_finite_field_weights() {
+    let dictionary = TestDictionary;
+    let fields = TestFieldRegistry;
+    let mut weights = BTreeMap::new();
+    weights.insert(TestFieldRegistry::body(), f32::NAN);
+
+    let error = PlanningContext::new(&dictionary, &fields)
+        .try_with_field_weights(weights)
+        .expect_err("non-finite weights should be rejected");
+
+    assert_eq!(
+        error,
+        QueryError::InvalidFieldWeight {
+            field: TestFieldRegistry::body()
+        }
+    );
+}

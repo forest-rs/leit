@@ -617,6 +617,33 @@ impl InMemoryIndex {
                 );
                 Ok(true)
             }
+            QueryNode::TermExpansion {
+                children, boost, ..
+            } if matches!(scoring, SearchScorer::Bm25(_)) && children.len() == 1 => {
+                let Some(QueryNode::Term {
+                    field,
+                    term,
+                    boost: term_boost,
+                }) = plan.program.get(children[0])
+                else {
+                    return Ok(false);
+                };
+                debug_assert!(
+                    filter.slots().is_empty(),
+                    "TermExpansion fast path fired with active filter slots; \
+                     ensure plan() was called with the same filter as execute()"
+                );
+                self.collect_term(
+                    *field,
+                    *term,
+                    *term_boost * *boost,
+                    scoring,
+                    collectors,
+                    stats,
+                    allow_pruning,
+                );
+                Ok(true)
+            }
             QueryNode::ConstantScore { child, score } => {
                 let mut result =
                     self.evaluate_node(*child, &plan.program, scoring, filter, stats)?;
