@@ -3,6 +3,8 @@
 
 //! Phase 1 planner contract tests.
 
+use std::collections::BTreeMap;
+
 use leit_core::{FieldId, QueryNodeId, TermId};
 use leit_query::{
     FeatureSet, FieldRegistry, Planner, PlannerScratch, PlanningContext, QueryError, QueryNode,
@@ -296,13 +298,20 @@ fn test_planner_expands_bare_term_across_multiple_default_fields() {
         .plan("rust", &context, &mut scratch)
         .expect("plan should expand bare term across fields");
 
-    // Should produce OR(title:rust, body:rust)
+    // Should preserve the default-field expansion boundary.
     match plan.program.get(plan.program.root()) {
-        Some(QueryNode::Or { children, .. }) => {
+        Some(QueryNode::TermExpansion {
+            children, fields, ..
+        }) => {
+            assert_eq!(
+                fields,
+                &[TestFieldRegistry::title(), TestFieldRegistry::body()],
+                "expansion should remember all searched default fields"
+            );
             assert_eq!(
                 children.len(),
                 2,
-                "OR should have two children for two default fields"
+                "expansion should have two resolved children for two matching fields"
             );
             for child_id in children {
                 match plan.program.get(*child_id) {
@@ -313,12 +322,12 @@ fn test_planner_expands_bare_term_across_multiple_default_fields() {
                 }
             }
         }
-        other => panic!("expected OR root for multi-field expansion, got {other:?}"),
+        other => panic!("expected TermExpansion root for multi-field expansion, got {other:?}"),
     }
 }
 
 #[test]
-fn test_planner_multi_field_skips_fields_where_term_is_absent() {
+fn test_planner_multi_field_preserves_fields_where_term_is_absent() {
     let planner = Planner::new();
     let dictionary = TestDictionary;
     let fields = TestFieldRegistry;
@@ -331,12 +340,89 @@ fn test_planner_multi_field_skips_fields_where_term_is_absent() {
         .plan("memory", &context, &mut scratch)
         .expect("plan should resolve memory in body only");
 
-    // "memory" only exists in body, so should produce a single Term node, not OR
+    // "memory" only exists in body, but scorers still need the full searched
+    // field set for absent-field normalization.
     match plan.program.get(plan.program.root()) {
-        Some(QueryNode::Term { field, term, .. }) => {
-            assert_eq!(*field, TestFieldRegistry::body());
-            assert_eq!(*term, TestDictionary::memory());
+        Some(QueryNode::TermExpansion {
+            children, fields, ..
+        }) => {
+            assert_eq!(
+                fields,
+                &[TestFieldRegistry::title(), TestFieldRegistry::body()]
+            );
+            assert_eq!(children.len(), 1);
+            match plan.program.get(children[0]) {
+                Some(QueryNode::Term { field, term, .. }) => {
+                    assert_eq!(*field, TestFieldRegistry::body());
+                    assert_eq!(*term, TestDictionary::memory());
+                }
+                other => panic!("expected Term child for resolved field, got {other:?}"),
+            }
         }
-        other => panic!("expected single Term for term in one field only, got {other:?}"),
+        other => panic!("expected TermExpansion for term in one field only, got {other:?}"),
     }
+}
+
+#[test]
+fn test_planner_preserves_field_weights_in_term_expansion() {
+    let planner = Planner::new();
+    let dictionary = TestDictionary;
+    let fields = TestFieldRegistry;
+    let mut scratch = PlannerScratch::new();
+    let mut weights = BTreeMap::new();
+    weights.insert(TestFieldRegistry::title(), 2.0);
+    weights.insert(TestFieldRegistry::body(), 0.5);
+    let context = PlanningContext::new(&dictionary, &fields)
+        .with_default_fields(vec![TestFieldRegistry::title(), TestFieldRegistry::body()])
+        .with_field_weights(weights);
+    let plan = planner
+        .plan("rust", &context, &mut scratch)
+        .expect("plan should succeed");
+
+    match plan.program.get(plan.program.root()) {
+        Some(QueryNode::TermExpansion { field_weights, .. }) => {
+            assert_eq!(field_weights.len(), 2);
+            assert!((field_weights[&TestFieldRegistry::title()] - 2.0).abs() <= f32::EPSILON);
+            assert!((field_weights[&TestFieldRegistry::body()] - 0.5).abs() <= f32::EPSILON);
+        }
+        other => panic!("expected TermExpansion, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_planning_context_rejects_negative_field_weights() {
+    let dictionary = TestDictionary;
+    let fields = TestFieldRegistry;
+    let mut weights = BTreeMap::new();
+    weights.insert(TestFieldRegistry::title(), -1.0);
+
+    let error = PlanningContext::new(&dictionary, &fields)
+        .try_with_field_weights(weights)
+        .expect_err("negative weights should be rejected");
+
+    assert_eq!(
+        error,
+        QueryError::InvalidFieldWeight {
+            field: TestFieldRegistry::title()
+        }
+    );
+}
+
+#[test]
+fn test_planning_context_rejects_non_finite_field_weights() {
+    let dictionary = TestDictionary;
+    let fields = TestFieldRegistry;
+    let mut weights = BTreeMap::new();
+    weights.insert(TestFieldRegistry::body(), f32::NAN);
+
+    let error = PlanningContext::new(&dictionary, &fields)
+        .try_with_field_weights(weights)
+        .expect_err("non-finite weights should be rejected");
+
+    assert_eq!(
+        error,
+        QueryError::InvalidFieldWeight {
+            field: TestFieldRegistry::body()
+        }
+    );
 }

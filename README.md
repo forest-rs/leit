@@ -9,8 +9,7 @@ The current codebase implements a Phase 1 in-memory search stack with:
 - Unicode-aware text analysis
 - explicit scorer selection in the in-memory index execution path
 - BM25 scoring wired through `leit_index` via explicit scorer selection
-- BM25F scorer available; per-field scoring works but cross-field aggregation
-  is not yet wired into the execution path
+- BM25F scoring with cross-field aggregation and configurable per-field weights
 - postings storage and cursor traits (execution currently uses index-internal
   postings; cursor-based traversal is Phase 2 work)
 - top-k collection
