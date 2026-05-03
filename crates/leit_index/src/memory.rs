@@ -13,7 +13,7 @@ use leit_text::FieldAnalyzers;
 
 use crate::codec::encode_segment;
 use crate::error::IndexError;
-use crate::search::{ExecutionStats, SearchScorer};
+use crate::search::{ExecutionStats, FieldHit, SearchScorer};
 
 pub(crate) const DEFAULT_POSTINGS_BLOCK_SIZE: usize = 2;
 
@@ -188,27 +188,34 @@ impl InMemoryIndex {
             QueryNode::Term { field, term, boost } => {
                 Ok(self.eval_term(*field, *term, *boost, scoring, stats))
             }
+            QueryNode::TermExpansion {
+                children,
+                fields,
+                boost,
+                field_weights,
+            } => {
+                if let SearchScorer::Bm25F(_) = scoring
+                    && let Some(mut result) = self.eval_bm25f_term_expansion(
+                        children,
+                        fields,
+                        field_weights,
+                        program,
+                        scoring,
+                        stats,
+                    )
+                {
+                    if is_non_unit_boost(*boost) {
+                        for score in result.scores.values_mut() {
+                            MulAssign::mul_assign(score, *boost);
+                        }
+                    }
+                    return Ok(result);
+                }
+
+                self.eval_disjunction(children, *boost, program, scoring, filter, stats)
+            }
             QueryNode::Or { children, boost } => {
-                let mut matches = BTreeSet::new();
-                let mut results = BTreeMap::new();
-                for child in children {
-                    let child_result =
-                        self.evaluate_node(*child, program, scoring, filter, stats)?;
-                    matches.extend(child_result.matches);
-                    for (doc_id, score) in child_result.scores {
-                        let entry = results.entry(doc_id).or_insert(Score::ZERO);
-                        AddAssign::add_assign(entry, score);
-                    }
-                }
-                if is_non_unit_boost(*boost) {
-                    for score in results.values_mut() {
-                        MulAssign::mul_assign(score, *boost);
-                    }
-                }
-                Ok(EvalResult {
-                    matches,
-                    scores: results,
-                })
+                self.eval_disjunction(children, *boost, program, scoring, filter, stats)
             }
             QueryNode::And { children, boost } => {
                 let mut iter = children.iter();
@@ -279,6 +286,140 @@ impl InMemoryIndex {
         }
     }
 
+    fn eval_disjunction<F: FilterEvaluator<u32>>(
+        &self,
+        children: &[QueryNodeId],
+        boost: f32,
+        program: &QueryProgram,
+        scoring: SearchScorer,
+        filter: &F,
+        stats: &mut ExecutionStats,
+    ) -> Result<EvalResult, IndexError> {
+        let mut matches = BTreeSet::new();
+        let mut results = BTreeMap::new();
+        for child in children {
+            let child_result = self.evaluate_node(*child, program, scoring, filter, stats)?;
+            matches.extend(child_result.matches);
+            for (doc_id, score) in child_result.scores {
+                let entry = results.entry(doc_id).or_insert(Score::ZERO);
+                AddAssign::add_assign(entry, score);
+            }
+        }
+        if is_non_unit_boost(boost) {
+            for score in results.values_mut() {
+                MulAssign::mul_assign(score, boost);
+            }
+        }
+        Ok(EvalResult {
+            matches,
+            scores: results,
+        })
+    }
+
+    fn eval_bm25f_term_expansion(
+        &self,
+        children: &[QueryNodeId],
+        fields: &[FieldId],
+        field_weights: &BTreeMap<FieldId, f32>,
+        program: &QueryProgram,
+        scoring: SearchScorer,
+        stats: &mut ExecutionStats,
+    ) -> Option<EvalResult> {
+        let mut terms = Vec::with_capacity(children.len());
+        let mut seen_fields = BTreeSet::new();
+        let mut expected_text: Option<&str> = None;
+        let mut expected_boost: Option<f32> = None;
+        for child in children {
+            let QueryNode::Term { field, term, boost } = program.get(*child)? else {
+                return None;
+            };
+            if !seen_fields.insert(*field) {
+                return None;
+            }
+            let term_entry = self.term_entries.get(term.as_u32() as usize)?;
+            if term_entry.term_id != *term || term_entry.field_id != *field {
+                return None;
+            }
+            match expected_text {
+                Some(text) if text != term_entry.term.as_str() => return None,
+                Some(_) => {}
+                None => expected_text = Some(term_entry.term.as_str()),
+            }
+            match expected_boost {
+                Some(value) if (value - *boost).abs() > f32::EPSILON => return None,
+                Some(_) => {}
+                None => expected_boost = Some(*boost),
+            }
+            terms.push((*field, *term));
+        }
+
+        let weight = |field: FieldId| -> f32 { field_weights.get(&field).copied().unwrap_or(1.0) };
+
+        let mut aggregation_fields = Vec::with_capacity(fields.len());
+        let mut avg_doc_length = 0.0_f32;
+        for &field in fields {
+            let avg_field_length = self.avg_field_doc_length(field);
+            avg_doc_length += avg_field_length;
+            aggregation_fields.push((field, avg_field_length));
+        }
+
+        let mut hits_by_doc = BTreeMap::<u32, BTreeMap<FieldId, FieldHit>>::new();
+        for (field, term) in terms {
+            let postings = self.postings.get(&term)?;
+            let avg_field_length = self.avg_field_doc_length(field);
+            for posting in postings {
+                stats.scored_postings = stats.scored_postings.saturating_add(1);
+                let field_length = self
+                    .field_doc_lengths
+                    .get(&(posting.doc_id, field))
+                    .copied()
+                    .unwrap_or_default();
+                hits_by_doc.entry(posting.doc_id).or_default().insert(
+                    field,
+                    FieldHit {
+                        field,
+                        term_frequency: posting.term_freq,
+                        field_length,
+                        avg_field_length,
+                        weight: weight(field),
+                    },
+                );
+            }
+        }
+
+        let doc_count = self.document_count();
+        let doc_frequency = u32::try_from(hits_by_doc.len()).unwrap_or(u32::MAX);
+        let boost = expected_boost.unwrap_or(1.0);
+        let mut scores = BTreeMap::new();
+        for (doc_id, mut field_hits_by_field) in hits_by_doc {
+            for (field, avg_field_length) in &aggregation_fields {
+                field_hits_by_field
+                    .entry(*field)
+                    .or_insert_with(|| FieldHit {
+                        field: *field,
+                        term_frequency: 0,
+                        field_length: self
+                            .field_doc_lengths
+                            .get(&(doc_id, *field))
+                            .copied()
+                            .unwrap_or_default(),
+                        avg_field_length: *avg_field_length,
+                        weight: weight(*field),
+                    });
+            }
+            let field_hits: Vec<FieldHit> = field_hits_by_field.into_values().collect();
+            let score = scoring.score_term_fields(
+                &field_hits,
+                avg_doc_length,
+                doc_count,
+                doc_frequency,
+                boost,
+            );
+            scores.insert(doc_id, score);
+        }
+        Some(EvalResult::from_scores(scores))
+    }
+
     fn evaluate_matches_node<F: FilterEvaluator<u32>>(
         &self,
         node_id: QueryNodeId,
@@ -299,7 +440,7 @@ impl InMemoryIndex {
                 }
                 Ok(matches)
             }
-            QueryNode::Or { children, .. } => {
+            QueryNode::Or { children, .. } | QueryNode::TermExpansion { children, .. } => {
                 let mut matches = BTreeSet::new();
                 for child in children {
                     matches.extend(self.evaluate_matches_node(*child, program, filter)?);
@@ -469,6 +610,33 @@ impl InMemoryIndex {
                     *field,
                     *term,
                     *boost,
+                    scoring,
+                    collectors,
+                    stats,
+                    allow_pruning,
+                );
+                Ok(true)
+            }
+            QueryNode::TermExpansion {
+                children, boost, ..
+            } if matches!(scoring, SearchScorer::Bm25(_)) && children.len() == 1 => {
+                let Some(QueryNode::Term {
+                    field,
+                    term,
+                    boost: term_boost,
+                }) = plan.program.get(children[0])
+                else {
+                    return Ok(false);
+                };
+                debug_assert!(
+                    filter.slots().is_empty(),
+                    "TermExpansion fast path fired with active filter slots; \
+                     ensure plan() was called with the same filter as execute()"
+                );
+                self.collect_term(
+                    *field,
+                    *term,
+                    *term_boost * *boost,
                     scoring,
                     collectors,
                     stats,

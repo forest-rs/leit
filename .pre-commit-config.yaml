@@ -1,3 +1,5 @@
+default_stages: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/crate-ci/typos
     rev: v1.44.0
@@ -33,14 +35,14 @@ repos:
         entry: bash .github/copyright.sh
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit, pre-push]
 
       - id: taplo-fmt
         name: taplo fmt
         entry: bash -c 'taplo fmt && taplo fmt --check'
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit, pre-push]
         types: [toml]
 
       - id: cargo-fmt
@@ -48,7 +50,7 @@ repos:
         entry: bash -c 'cargo fmt --all && cargo fmt --all --check'
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit, pre-push]
         types: [rust]
 
       - id: cargo-clippy-no-std

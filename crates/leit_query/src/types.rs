@@ -1,6 +1,7 @@
 // Copyright 2026 the Leit Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
+use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -461,7 +462,9 @@ fn validate_planned_program(nodes: &[QueryNode], root: QueryNodeId) -> Result<()
             u32::try_from(index).expect("planned query program exceeded u32 node IDs"),
         );
         match node {
-            QueryNode::And { children, .. } | QueryNode::Or { children, .. } => {
+            QueryNode::And { children, .. }
+            | QueryNode::Or { children, .. }
+            | QueryNode::TermExpansion { children, .. } => {
                 for child in children {
                     if !contains(*child) {
                         return Err(QueryError::InvalidProgramReference {
@@ -548,6 +551,21 @@ pub enum QueryNode {
         /// Score multiplier for the node.
         boost: f32,
     },
+    /// Default-field term expansion with searched-field metadata.
+    ///
+    /// `children` contains the fields where the term resolved to postings.
+    /// `fields` contains the full set of searched default fields so scorers
+    /// that need absent-field lengths can preserve that context.
+    TermExpansion {
+        /// Resolved term child node identifiers.
+        children: Vec<QueryNodeId>,
+        /// All searched default fields for this expansion.
+        fields: Vec<leit_core::FieldId>,
+        /// Score multiplier for the expansion.
+        boost: f32,
+        /// Per-field BM25F weight overrides. Fields absent from the map default to weight 1.0.
+        field_weights: BTreeMap<leit_core::FieldId, f32>,
+    },
     /// Logical negation.
     Not {
         /// Child node identifier.
@@ -587,7 +605,9 @@ pub enum QueryNode {
 impl QueryNode {
     fn children(&self) -> &[QueryNodeId] {
         match self {
-            Self::And { children, .. } | Self::Or { children, .. } => children,
+            Self::And { children, .. }
+            | Self::Or { children, .. }
+            | Self::TermExpansion { children, .. } => children,
             Self::Not { child }
             | Self::ConstantScore { child, .. }
             | Self::Filter { input: child, .. }
@@ -616,6 +636,7 @@ pub struct PlanningContext<'a> {
     pub(crate) fields: &'a dyn FieldRegistry,
     pub(crate) default_fields: Vec<leit_core::FieldId>,
     pub(crate) default_boost: f32,
+    pub(crate) field_weights: BTreeMap<leit_core::FieldId, f32>,
 }
 
 impl<'a> PlanningContext<'a> {
@@ -626,6 +647,7 @@ impl<'a> PlanningContext<'a> {
             fields,
             default_fields: Vec::new(),
             default_boost: 1.0,
+            field_weights: BTreeMap::new(),
         }
     }
 
@@ -649,6 +671,40 @@ impl<'a> PlanningContext<'a> {
         self.default_boost = boost;
         self
     }
+
+    /// Set per-field BM25F weight overrides.
+    ///
+    /// Fields absent from the map default to weight 1.0 at execution time. Weights
+    /// must be finite and non-negative.
+    #[must_use]
+    pub fn with_field_weights(mut self, weights: BTreeMap<leit_core::FieldId, f32>) -> Self {
+        validate_field_weights(&weights)
+            .expect("BM25F field weights must be finite and non-negative");
+        self.field_weights = weights;
+        self
+    }
+
+    /// Try to set per-field BM25F weight overrides.
+    ///
+    /// Fields absent from the map default to weight 1.0 at execution time. Weights
+    /// must be finite and non-negative.
+    pub fn try_with_field_weights(
+        mut self,
+        weights: BTreeMap<leit_core::FieldId, f32>,
+    ) -> Result<Self, QueryError> {
+        validate_field_weights(&weights)?;
+        self.field_weights = weights;
+        Ok(self)
+    }
+}
+
+fn validate_field_weights(weights: &BTreeMap<leit_core::FieldId, f32>) -> Result<(), QueryError> {
+    for (&field, &weight) in weights {
+        if !weight.is_finite() || weight < 0.0 {
+            return Err(QueryError::InvalidFieldWeight { field });
+        }
+    }
+    Ok(())
 }
 
 impl fmt::Debug for PlanningContext<'_> {
@@ -656,6 +712,7 @@ impl fmt::Debug for PlanningContext<'_> {
         f.debug_struct("PlanningContext")
             .field("default_fields", &self.default_fields)
             .field("default_boost", &self.default_boost)
+            .field("field_weights", &self.field_weights)
             .finish_non_exhaustive()
     }
 }
@@ -727,6 +784,11 @@ pub enum QueryError {
         /// The unreachable node identifier.
         node: QueryNodeId,
     },
+    /// A BM25F field weight was not finite and non-negative.
+    InvalidFieldWeight {
+        /// The field whose configured weight was invalid.
+        field: leit_core::FieldId,
+    },
 }
 
 impl core::error::Error for QueryError {}
@@ -775,6 +837,11 @@ impl fmt::Display for QueryError {
                 f,
                 "planned query program contains unreachable node {}",
                 node.as_u32()
+            ),
+            Self::InvalidFieldWeight { field } => write!(
+                f,
+                "invalid BM25F field weight for field {}: weights must be finite and non-negative",
+                field.as_u32()
             ),
         }
     }

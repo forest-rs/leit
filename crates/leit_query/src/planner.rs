@@ -300,13 +300,11 @@ fn lower_phase1_expr(
                 }
                 match child_ids.len() {
                     0 => EMPTY_NODE,
-                    1 => {
-                        // Only one field matched — already pushed, return its ID directly
-                        return Ok(child_ids[0]);
-                    }
-                    _ => QueryNode::Or {
+                    _ => QueryNode::TermExpansion {
                         children: child_ids,
+                        fields: context.default_fields.clone(),
                         boost: 1.0,
+                        field_weights: context.field_weights.clone(),
                     },
                 }
             }
