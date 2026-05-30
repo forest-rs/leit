@@ -1,0 +1,25 @@
+# Cargo.lock is fully generated from the Cargo.toml manifests.
+#
+# `merge=binary` stops git from attempting a line-based textual merge, which can
+# splice both sides together into invalid TOML (duplicate package entries). On a
+# conflict git leaves the file unmerged; regenerate it deterministically with:
+#
+#     cargo generate-lockfile        # or: cargo update -w
+#
+# The pre-push hook (`cargo-lockfile-locked`) then verifies the result is in sync
+# before the push, matching CI's `--locked` gate.
+#
+# OPTIONAL — true "regenerate on conflict" for plain-git users:
+# A merge driver can auto-regenerate, but `.gitattributes` cannot do it alone —
+# it must be registered in (uncommitted) git config, and it only fires for
+# `git merge`/`git rebase` (NOT jj, NOT GitHub's server-side merge). To enable:
+#
+#     git config merge.cargo-lock.name   "regenerate Cargo.lock"
+#     git config merge.cargo-lock.driver ".github/hooks/cargo-lock-merge.sh %O %A %B %P"
+#
+# then change the line below to `Cargo.lock merge=cargo-lock`.
+#
+# jj users: jj resolves conflicts via mergiraf (TOML-aware) and first-class
+# conflicts; after a rebase that conflicts here, `cargo generate-lockfile` is the
+# reliable fix.
+Cargo.lock merge=binary
