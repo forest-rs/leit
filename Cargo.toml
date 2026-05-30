@@ -11,6 +11,8 @@ members = [
     "crates/leit_score",
     "crates/leit_text",
     "crates/leit_wind_tunnel",
+    "crates/leit_wind_tunnel_index",
+    "crates/leit_wind_tunnel_query",
     "examples/basic_search",
     "examples/explicit_execution",
 ]
@@ -42,6 +44,7 @@ leit_text = { default-features = false, path = "crates/leit_text" }
 leit_wind_tunnel = { path = "crates/leit_wind_tunnel" }
 
 # Testing
+criterion = { version = "0.5" }
 proptest = { version = "1.0" }
 
 # Hashing
