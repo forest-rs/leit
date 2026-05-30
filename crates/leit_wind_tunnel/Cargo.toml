@@ -1,0 +1,20 @@
+[package]
+name = "leit_wind_tunnel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Deterministic test harness and corpus generator for the Leit retrieval kernel Phase 2"
+publish = false
+
+[dependencies]
+leit_core = { features = ["std"], workspace = true }
+leit_index = { features = ["std"], workspace = true }
+leit_text = { features = ["std"], workspace = true }
+rapidhash = "4.4"
+
+[lints]
+workspace = true

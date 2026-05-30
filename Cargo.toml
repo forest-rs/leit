@@ -10,6 +10,7 @@ members = [
     "crates/leit_query",
     "crates/leit_score",
     "crates/leit_text",
+    "crates/leit_wind_tunnel",
     "examples/basic_search",
     "examples/explicit_execution",
 ]
@@ -38,9 +39,13 @@ leit_postings = { default-features = false, path = "crates/leit_postings" }
 leit_query = { default-features = false, path = "crates/leit_query" }
 leit_score = { default-features = false, path = "crates/leit_score" }
 leit_text = { default-features = false, path = "crates/leit_text" }
+leit_wind_tunnel = { path = "crates/leit_wind_tunnel" }
 
 # Testing
 proptest = { version = "1.0" }
+
+# Hashing
+rapidhash = { version = "4.4" }
 
 # Math
 core_maths = { default-features = false, version = "0.1" }
