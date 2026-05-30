@@ -53,6 +53,19 @@ repos:
         stages: [pre-commit, pre-push]
         types: [rust]
 
+      # Fail fast if Cargo.lock is out of sync with the manifests. CI runs every
+      # cargo command with --locked, which refuses to update the lockfile and
+      # exits 101 ("cannot update the lock file because --locked was passed").
+      # Local cargo runs WITHOUT --locked silently repair the lock and hide the
+      # drift, so this gate reproduces the CI check before the push.
+      - id: cargo-lockfile-locked
+        name: cargo metadata (Cargo.lock in sync, --locked)
+        entry: bash -c 'cargo metadata --format-version=1 --all-features --locked >/dev/null'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: cargo-clippy-no-std
         name: cargo clippy (no_std)
         entry: bash .github/hooks/clippy-no-std.sh
