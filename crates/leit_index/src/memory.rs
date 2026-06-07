@@ -1058,12 +1058,13 @@ mod tests {
     }
 
     // ============================================================================
-    // SCENARIO-0026: Compressed postings roundtrip preserves ranking equivalence
+    // SCENARIO-0026: Compressed term/conjunction paths preserve ranking equivalence
     // ============================================================================
     //
     // STORY-0088 AC-2 / STORY-0008 AC-1/AC-2/AC-3: Verify that compressed cursor
-    // paths (DeltaVarint, BlockDelta) produce identical top-k ranking to the in-memory
-    // uncompressed path.
+    // term paths (DeltaVarint, BlockDelta), plus conjunctions that thread that source,
+    // produce identical top-k ranking to the in-memory uncompressed path. OR and
+    // generic TermExpansion intentionally fall back to InMemory in this iteration.
 
     #[test]
     fn scenario_0026_compressed_cursor_equivalence() {
@@ -1130,8 +1131,8 @@ mod tests {
         // Note: BM25F cross-field aggregation is NOT cursor-wired in ITER-0003B; stays InMemory.
         let queries = alloc::vec![
             "programming",      // single-term: exercises Term node with source threading
-            "rust OR systems",  // OR: verifies OR is non-scored by cursor (stays InMemory)
-            "rust AND systems", // AND: verifies AND threads source through children
+            "rust OR systems",  // OR: verifies the documented InMemory fallback
+            "rust AND systems", // AND: verifies conjunction threads source through children
             "title:rust",       // fielded: exercises Term node with source threading
         ];
 

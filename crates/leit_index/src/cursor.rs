@@ -14,7 +14,9 @@ use leit_postings::cursor::{CursorStatus, DocCursor, TfCursor};
 ///
 /// STORY-0008 AC-1: cursor source is selectable at scoring entry points (`eval_term`, `collect_term`).
 /// Non-regression: all public callers default to `InMemory`, preserving existing behavior.
-/// STORY-0088 AC-2: SCENARIO-0026 (e2e equivalence test) exercises both `Compressed` variants.
+/// STORY-0088 AC-2: SCENARIO-0026 (e2e equivalence test) exercises both `Compressed` variants
+/// on leaf term paths and conjunctions that thread the selected source through their children.
+/// OR and generic term expansion still fall back to `InMemory`.
 ///
 /// # TODO(ITER-0004)
 /// In ITER-0004, the compressed source here encodes on the fly. A future segment format will
