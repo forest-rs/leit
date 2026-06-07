@@ -77,9 +77,9 @@ impl From<SegmentError> for MmapError {
 /// borrowing the mmap region with the borrowing thread's lifetime, ensuring no
 /// data races.
 ///
-    /// **Validation:** The header is validated on open (magic bytes, version). Follow-up
-    /// view construction defaults to structural validation and can be made stricter via
-    /// `view().with_mode(...)`.
+/// **Validation:** The header is validated on open (magic bytes, version). Follow-up
+/// view construction defaults to structural validation and can be made stricter via
+/// `view().with_mode(...)`.
 #[derive(Debug)]
 pub struct MmapSegment {
     mmap: Mmap,
@@ -592,11 +592,15 @@ mod tests {
 
     #[test]
     fn mmap_full_validation_detects_checksum_corruption() {
-        let temp_path = write_test_segment_to_file(&build_test_index()).expect("write test segment");
+        let temp_path =
+            write_test_segment_to_file(&build_test_index()).expect("write test segment");
 
         let mut bytes = std::fs::read(&temp_path).expect("read temp segment");
         let corruption_offset = 150;
-        assert!(corruption_offset < bytes.len() - 4, "corruption must avoid footer");
+        assert!(
+            corruption_offset < bytes.len() - 4,
+            "corruption must avoid footer"
+        );
         bytes[corruption_offset] ^= 0xFF;
         std::fs::write(&temp_path, &bytes).expect("rewrite corrupted segment");
 
@@ -608,10 +612,7 @@ mod tests {
             "default structural view should still accept checksum-only corruption"
         );
 
-        let full = mmap_segment
-            .view()
-            .with_mode(ValidationMode::Full)
-            .open();
+        let full = mmap_segment.view().with_mode(ValidationMode::Full).open();
         assert!(
             matches!(full, Err(SegmentError::BadChecksum { .. })),
             "full mmap validation should detect checksum corruption"

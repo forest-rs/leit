@@ -24,13 +24,18 @@ mod builder;
 mod codec;
 mod cursor;
 mod error;
+mod index_surface;
 mod memory;
 mod search;
 mod segment;
 mod segment_format;
+mod segment_index;
 
 pub use builder::{InMemoryIndexBuilder, IndexBuilder};
 pub use error::{IndexError, SegmentError, ValidationMode};
+pub use index_surface::{
+    ExecutableIndex, FieldStatsView, PlanningIndex, PostingBlockView, TermEntryView,
+};
 pub use leit_core::{FilterEvaluator, FilterSlotId, NoFilter};
 pub use memory::InMemoryIndex;
 pub use search::{ExecutionStats, ExecutionWorkspace, SearchScorer};
@@ -44,9 +49,9 @@ pub use segment::DirectorySegmentView;
     reason = "SectionKind is a deprecated Phase 1 artifact; kept for frozen compatibility"
 )]
 pub use segment::SectionKind;
+pub use segment_format::migrate::migrate_to_current;
 #[cfg(feature = "mmap")]
 pub use segment_format::mmap::{MmapError, MmapSegment, MmapSegmentViewBuilder};
-pub use segment_format::migrate::migrate_to_current;
 pub use segment_format::{
     BlockMetadataReader, FORMAT_VERSION, FieldTableReader, HEADER_SIZE, LexiconReader, MAGIC,
     PostingsDataReader, PostingsTableReader, SegmentHeader, SegmentView,

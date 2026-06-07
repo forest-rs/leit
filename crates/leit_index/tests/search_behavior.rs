@@ -8,9 +8,12 @@ use std::collections::BTreeSet;
 use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::FieldId;
 use leit_index::{
-    ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, SearchScorer,
+    ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
+    PlanningIndex, SearchScorer,
 };
-use leit_query::{Planner, PlannerScratch, PlanningContext, QueryError};
+use leit_query::{
+    FieldRegistry, Planner, PlannerScratch, PlanningContext, QueryError, TermDictionary,
+};
 use leit_score::{Bm25FScorer, FieldStats};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
@@ -33,6 +36,41 @@ fn multi_field_analyzers() -> FieldAnalyzers {
     analyzers
 }
 
+#[derive(Debug)]
+struct MockPlanningIndex;
+
+impl FieldRegistry for MockPlanningIndex {
+    fn resolve_field(&self, field: &str) -> Option<FieldId> {
+        match field {
+            "title" => Some(FieldId::new(1)),
+            "body" => Some(FieldId::new(2)),
+            _ => None,
+        }
+    }
+}
+
+impl TermDictionary for MockPlanningIndex {
+    fn resolve_term(&self, field: FieldId, term: &str) -> Option<leit_core::TermId> {
+        match (field.as_u32(), term) {
+            (1, "rust") => Some(leit_core::TermId::new(10)),
+            (2, "rust") => Some(leit_core::TermId::new(20)),
+            _ => None,
+        }
+    }
+}
+
+impl PlanningIndex for MockPlanningIndex {
+    fn for_each_field(&self, f: &mut dyn FnMut(FieldId)) {
+        f(FieldId::new(1));
+        f(FieldId::new(2));
+    }
+
+    fn for_each_default_field(&self, f: &mut dyn FnMut(FieldId)) {
+        f(FieldId::new(1));
+        f(FieldId::new(2));
+    }
+}
+
 fn search(
     index: &InMemoryIndex,
     query: &str,
@@ -40,6 +78,22 @@ fn search(
 ) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
     workspace.search(index, query, limit, SearchScorer::bm25(), &NoFilter)
+}
+
+#[test]
+fn workspace_plan_accepts_non_in_memory_planning_index() {
+    let index = MockPlanningIndex;
+    let mut workspace = ExecutionWorkspace::new();
+
+    let plan = workspace
+        .plan(&index, "rust", &NoFilter)
+        .expect("planning should work through PlanningIndex");
+
+    assert_eq!(
+        plan.program.node_count(),
+        3,
+        "bare term should expand across default fields"
+    );
 }
 
 fn search_with_stats(

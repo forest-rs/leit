@@ -4,7 +4,10 @@
 //! Segment round-trip and validation tests for `leit-index` (Phase 2+ DEC-05 format).
 
 use leit_core::FieldId;
-use leit_index::{InMemoryIndexBuilder, SegmentError, SegmentView, ValidationMode};
+use leit_index::{
+    InMemoryIndexBuilder, SegmentError, SegmentIndex, SegmentView, ValidationMode,
+    migrate_to_current,
+};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
 fn test_analyzers() -> FieldAnalyzers {
@@ -38,6 +41,23 @@ fn roundtrip_segment_view_opens_written_segment() {
     assert_eq!(view.document_count(), 2, "segment should have 2 documents");
     SegmentView::open_with_validation(&bytes, ValidationMode::Full)
         .expect("written segment should pass Full validation");
+}
+
+#[test]
+fn roundtrip_segment_index_wraps_segment_view() {
+    let mut builder = InMemoryIndexBuilder::new(test_analyzers());
+    builder
+        .index_document(1, &[(FieldId::new(1), "Rust Retrieval")])
+        .expect("document 1 should index");
+    let index = builder.build_index();
+
+    let bytes = index
+        .to_segment_bytes()
+        .expect("segment export should work");
+    let view = SegmentView::open(&bytes).expect("segment view should open");
+    let segment_index = SegmentIndex::new(view);
+
+    assert_eq!(segment_index.view().document_count(), 1);
 }
 
 #[test]
