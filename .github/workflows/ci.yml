@@ -21,21 +21,32 @@ env:
     -p leit_collect
     -p leit_index
   # List of packages that don't support `no_std`.
+  # The wind tunnel crates depend on leit_index with the `std` feature and (for the
+  # benchmark crates) on Criterion, so they are std-only just like leit_benchmark.
   RUST_STD_ONLY_PKGS: >-
     --exclude basic_search
     --exclude explicit_execution
     --exclude leit_index
     --exclude leit_benchmark
     --exclude leit_integration_tests
+    --exclude leit_wind_tunnel
+    --exclude leit_wind_tunnel_index
+    --exclude leit_wind_tunnel_query
   # List of packages that don't support wasip1
   # proptest → rusty-fork → wait-timeout has no wasip1 backend
   RUST_NO_WASIP1_PKGS: >-
     --exclude leit_benchmark
     --exclude leit_integration_tests
+    --exclude leit_wind_tunnel
+    --exclude leit_wind_tunnel_index
+    --exclude leit_wind_tunnel_query
   # List of packages that don't support wasm32
   RUST_NO_WASM_PKGS: >-
     --exclude leit_benchmark
     --exclude leit_integration_tests
+    --exclude leit_wind_tunnel
+    --exclude leit_wind_tunnel_index
+    --exclude leit_wind_tunnel_query
   # List of features that depend on the standard library and will be excluded from no_std checks.
   FEATURES_DEPENDING_ON_STD: "std,default"
 

@@ -1,0 +1,31 @@
+[package]
+name = "leit_wind_tunnel_index"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Criterion indexing-throughput benchmarks for the Leit wind tunnel"
+publish = false
+
+# This crate's only artifacts are Criterion benches; the empty lib exists solely
+# to carry crate-level docs. Disable its default (empty) bench harness so that
+# Criterion CLI args reach the `indexing` bench without an intercepting libtest run.
+[lib]
+bench = false
+
+[dev-dependencies]
+criterion = { workspace = true }
+leit_core = { features = ["std"], workspace = true }
+leit_index = { features = ["std"], workspace = true }
+leit_text = { features = ["std"], workspace = true }
+leit_wind_tunnel = { workspace = true }
+
+[[bench]]
+name = "indexing"
+harness = false
+
+[lints]
+workspace = true
