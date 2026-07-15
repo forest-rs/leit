@@ -27,13 +27,12 @@ pub(crate) struct TermEntry {
 /// A single posting: a document ID and its term frequency for a term.
 ///
 /// Postings are aggregated per term and stored in doc-sorted order (ascending doc ID).
-/// This type is public primarily for codec benchmarking and analysis.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PostingEntry {
+pub(crate) struct PostingEntry {
     /// Document identifier (segment-local, u32).
-    pub doc_id: u32,
+    pub(crate) doc_id: u32,
     /// Term frequency (raw count of term occurrences in the document's field).
-    pub term_freq: u32,
+    pub(crate) term_freq: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -141,12 +140,20 @@ impl InMemoryIndex {
         &self.postings
     }
 
-    /// Return all postings indexed by term ID.
-    ///
-    /// Postings are doc-sorted (ascending doc ID) within each term's list.
-    /// This method is primarily used for codec benchmarking and analysis.
-    pub fn postings_by_term(&self) -> &BTreeMap<TermId, Vec<PostingEntry>> {
-        &self.postings
+    /// Snapshot postings as primitive tuples for out-of-crate benchmarks.
+    #[cfg(feature = "bench-internals")]
+    #[doc(hidden)]
+    pub fn benchmark_postings(&self) -> Vec<Vec<(u32, u32)>> {
+        self.postings
+            .values()
+            .filter(|postings| !postings.is_empty())
+            .map(|postings| {
+                postings
+                    .iter()
+                    .map(|posting| (posting.doc_id, posting.term_freq))
+                    .collect()
+            })
+            .collect()
     }
 
     fn avg_field_doc_length(&self, field: FieldId) -> f32 {

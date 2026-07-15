@@ -20,6 +20,7 @@ leit_text.workspace = true
 
 [features]
 default = ["std"]
+bench-internals = []
 std = [
     "leit_core/std",
     "leit_text/std",

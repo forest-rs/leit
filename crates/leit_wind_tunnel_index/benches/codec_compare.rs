@@ -16,10 +16,10 @@
     reason = "criterion_group! generates an undocumented public `benches` fn"
 )]
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use leit_core::{FieldId, SegmentLocalDocId, TermFreq};
 use leit_index::InMemoryIndexBuilder;
-use leit_postings::codec::{BlockDeltaCodec, Codec, CodecId, DeltaVarintCodec};
+use leit_postings::codec::{BlockDeltaCodec, Codec, DeltaVarintCodec};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 use leit_wind_tunnel::{CorpusGenerator, corpus::GeneratedDoc};
 
@@ -32,6 +32,22 @@ const BODY: FieldId = FieldId::new(2);
 
 /// Postings list type: `Vec` of (`SegmentLocalDocId`, `TermFreq`) tuples per term.
 type PostingsList = Vec<Vec<(SegmentLocalDocId, TermFreq)>>;
+
+struct CorpusCase {
+    label: &'static str,
+    doc_count: u32,
+    postings: PostingsList,
+}
+
+impl CorpusCase {
+    fn total_postings(&self) -> usize {
+        self.postings.iter().map(Vec::len).sum()
+    }
+
+    fn max_postings_len(&self) -> usize {
+        self.postings.iter().map(Vec::len).max().unwrap_or(0)
+    }
+}
 
 /// Build the field analyzers used for indexing (whitespace tokenizer + unicode
 /// normalizer on both fields), matching the wind-tunnel integration tests.
@@ -67,17 +83,36 @@ fn extract_postings(corpus: &[GeneratedDoc]) -> PostingsList {
 
     // Extract all postings as (SegmentLocalDocId, TermFreq) tuples.
     // Postings are already doc-sorted from the index.
-    let mut all_postings = Vec::new();
-    for posting_list in index.postings_by_term().values() {
-        let postings: Vec<(SegmentLocalDocId, TermFreq)> = posting_list
-            .iter()
-            .map(|p| (SegmentLocalDocId::new(p.doc_id), TermFreq::new(p.term_freq)))
-            .collect();
-        if !postings.is_empty() {
-            all_postings.push(postings);
+    index
+        .benchmark_postings()
+        .into_iter()
+        .map(|posting_list| {
+            posting_list
+                .into_iter()
+                .map(|(doc_id, term_freq)| {
+                    (SegmentLocalDocId::new(doc_id), TermFreq::new(term_freq))
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn validate_decodes<C: Codec>(codec: &C, encoded: &[Vec<u8>], postings: &PostingsList) {
+    let max_len = postings.iter().map(Vec::len).max().unwrap_or(0);
+    let mut docs = Vec::with_capacity(max_len);
+    let mut tfs = Vec::with_capacity(max_len);
+
+    for (bytes, expected) in encoded.iter().zip(postings) {
+        codec
+            .decode(bytes, &mut docs, &mut tfs)
+            .expect("decode should succeed");
+        assert_eq!(docs.len(), expected.len(), "doc count mismatch");
+        assert_eq!(tfs.len(), expected.len(), "tf count mismatch");
+        for (index, (doc_id, tf)) in expected.iter().enumerate() {
+            assert_eq!(docs[index], *doc_id, "doc mismatch at index {index}");
+            assert_eq!(tfs[index], *tf, "tf mismatch at index {index}");
         }
     }
-    all_postings
 }
 
 /// Measure compression ratio and emit a summary table.
@@ -118,23 +153,23 @@ fn bench_codec_encode_decode(c: &mut Criterion) {
     let generator = CorpusGenerator::new(SEED);
 
     // Prepare corpora and postings once outside the benchmark loop.
-    #[expect(
-        clippy::useless_vec,
-        reason = "vec literal is the idiomatic way to construct this list"
-    )]
-    let corpora = vec![
-        (1_000_u32, generator.generate(1_000)),
-        (10_000_u32, generator.generate(10_000)),
+    let corpora = [
+        ("1k", 1_000_u32, generator.generate(1_000)),
+        ("10k", 10_000_u32, generator.generate(10_000)),
     ];
 
-    let all_postings: Vec<(u32, PostingsList)> = corpora
+    let all_postings: Vec<CorpusCase> = corpora
         .iter()
-        .map(|(size, corpus)| (*size, extract_postings(corpus)))
+        .map(|(label, doc_count, corpus)| CorpusCase {
+            label,
+            doc_count: *doc_count,
+            postings: extract_postings(corpus),
+        })
         .collect();
 
     // Report compression sizes upfront.
-    for (corpus_size, postings_list) in &all_postings {
-        let mut total_postings = 0;
+    for corpus in &all_postings {
+        let total_postings = corpus.total_postings();
         let mut sizes = Vec::new();
 
         // Encode all postings with each codec and measure total size.
@@ -144,43 +179,35 @@ fn bench_codec_encode_decode(c: &mut Criterion) {
         let mut dv_total_size = 0;
         let mut bd_total_size = 0;
 
-        for postings in postings_list {
-            if !postings.is_empty() {
-                total_postings += postings.len();
+        for postings in &corpus.postings {
+            let dv_encoded = delta_varint_codec.encode(postings);
+            dv_total_size += dv_encoded.len();
 
-                let dv_encoded = delta_varint_codec.encode(postings);
-                dv_total_size += dv_encoded.len();
-
-                let bd_encoded = block_delta_codec.encode(postings);
-                bd_total_size += bd_encoded.len();
-            }
+            let bd_encoded = block_delta_codec.encode(postings);
+            bd_total_size += bd_encoded.len();
         }
 
         sizes.push(("DeltaVarint", dv_total_size));
         sizes.push(("BlockDelta", bd_total_size));
 
-        report_compression_detailed(*corpus_size, total_postings, &sizes);
+        report_compression_detailed(corpus.doc_count, total_postings, &sizes);
     }
 
     let mut group = c.benchmark_group("codec_encode");
-    for (corpus_size_label, corpus_size, postings_list) in all_postings.iter().map(|(s, p)| {
-        let label = if *s == 1_000 { "1k" } else { "10k" };
-        (label, *s, p)
-    }) {
+    for corpus in &all_postings {
         let delta_varint_codec = DeltaVarintCodec;
         let block_delta_codec = BlockDeltaCodec;
+        group.throughput(Throughput::Elements(corpus.total_postings() as u64));
 
         group.bench_with_input(
-            BenchmarkId::from_parameter(format!("deltavarint/{}", corpus_size_label)),
-            &corpus_size,
+            BenchmarkId::from_parameter(format!("deltavarint/{}", corpus.label)),
+            &corpus.doc_count,
             |b, _| {
                 b.iter(|| {
                     let mut total_bytes = 0;
-                    for postings in postings_list {
-                        if !postings.is_empty() {
-                            let encoded = delta_varint_codec.encode(postings);
-                            total_bytes += encoded.len();
-                        }
+                    for postings in &corpus.postings {
+                        let encoded = delta_varint_codec.encode(postings);
+                        total_bytes += encoded.len();
                     }
                     criterion::black_box(total_bytes);
                 });
@@ -188,16 +215,14 @@ fn bench_codec_encode_decode(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::from_parameter(format!("blockdelta/{}", corpus_size_label)),
-            &corpus_size,
+            BenchmarkId::from_parameter(format!("blockdelta/{}", corpus.label)),
+            &corpus.doc_count,
             |b, _| {
                 b.iter(|| {
                     let mut total_bytes = 0;
-                    for postings in postings_list {
-                        if !postings.is_empty() {
-                            let encoded = block_delta_codec.encode(postings);
-                            total_bytes += encoded.len();
-                        }
+                    for postings in &corpus.postings {
+                        let encoded = block_delta_codec.encode(postings);
+                        total_bytes += encoded.len();
                     }
                     criterion::black_box(total_bytes);
                 });
@@ -207,57 +232,40 @@ fn bench_codec_encode_decode(c: &mut Criterion) {
     group.finish();
 
     let mut group = c.benchmark_group("codec_decode");
-    for (corpus_size_label, corpus_size, postings_list) in all_postings.iter().map(|(s, p)| {
-        let label = if *s == 1_000 { "1k" } else { "10k" };
-        (label, *s, p)
-    }) {
+    for corpus in &all_postings {
         let delta_varint_codec = DeltaVarintCodec;
         let block_delta_codec = BlockDeltaCodec;
 
         // Pre-encode for decode benchmarks.
-        let dv_encoded: Vec<Vec<u8>> = postings_list
+        let dv_encoded: Vec<Vec<u8>> = corpus
+            .postings
             .iter()
-            .map(|p| {
-                if p.is_empty() {
-                    vec![CodecId::DeltaVarint.to_u8()]
-                } else {
-                    delta_varint_codec.encode(p)
-                }
-            })
+            .map(|postings| delta_varint_codec.encode(postings))
             .collect();
 
-        let bd_encoded: Vec<Vec<u8>> = postings_list
+        let bd_encoded: Vec<Vec<u8>> = corpus
+            .postings
             .iter()
-            .map(|p| {
-                if p.is_empty() {
-                    vec![CodecId::BlockDelta.to_u8()]
-                } else {
-                    block_delta_codec.encode(p)
-                }
-            })
+            .map(|postings| block_delta_codec.encode(postings))
             .collect();
+
+        validate_decodes(&delta_varint_codec, &dv_encoded, &corpus.postings);
+        validate_decodes(&block_delta_codec, &bd_encoded, &corpus.postings);
+        group.throughput(Throughput::Elements(corpus.total_postings() as u64));
 
         group.bench_with_input(
-            BenchmarkId::from_parameter(format!("deltavarint/{}", corpus_size_label)),
-            &corpus_size,
+            BenchmarkId::from_parameter(format!("deltavarint/{}", corpus.label)),
+            &corpus.doc_count,
             |b, _| {
+                let max_len = corpus.max_postings_len();
+                let mut docs = Vec::with_capacity(max_len);
+                let mut tfs = Vec::with_capacity(max_len);
                 b.iter(|| {
                     let mut decoded_count = 0;
-                    for (encoded, original_postings) in dv_encoded.iter().zip(postings_list) {
-                        let mut docs = Vec::new();
-                        let mut tfs = Vec::new();
+                    for encoded in &dv_encoded {
                         delta_varint_codec
                             .decode(encoded, &mut docs, &mut tfs)
                             .expect("decode should succeed");
-
-                        // Sanity gate: verify decode matches original (compare typed values).
-                        assert_eq!(docs.len(), original_postings.len(), "doc count mismatch");
-                        assert_eq!(tfs.len(), original_postings.len(), "tf count mismatch");
-                        for (i, (doc_id, tf)) in original_postings.iter().enumerate() {
-                            assert_eq!(docs[i], *doc_id, "doc mismatch at index {i}");
-                            assert_eq!(tfs[i], *tf, "tf mismatch at index {i}");
-                        }
-
                         decoded_count += docs.len();
                     }
                     criterion::black_box(decoded_count);
@@ -266,26 +274,18 @@ fn bench_codec_encode_decode(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::from_parameter(format!("blockdelta/{}", corpus_size_label)),
-            &corpus_size,
+            BenchmarkId::from_parameter(format!("blockdelta/{}", corpus.label)),
+            &corpus.doc_count,
             |b, _| {
+                let max_len = corpus.max_postings_len();
+                let mut docs = Vec::with_capacity(max_len);
+                let mut tfs = Vec::with_capacity(max_len);
                 b.iter(|| {
                     let mut decoded_count = 0;
-                    for (encoded, original_postings) in bd_encoded.iter().zip(postings_list) {
-                        let mut docs = Vec::new();
-                        let mut tfs = Vec::new();
+                    for encoded in &bd_encoded {
                         block_delta_codec
                             .decode(encoded, &mut docs, &mut tfs)
                             .expect("decode should succeed");
-
-                        // Sanity gate: verify decode matches original (compare typed values).
-                        assert_eq!(docs.len(), original_postings.len(), "doc count mismatch");
-                        assert_eq!(tfs.len(), original_postings.len(), "tf count mismatch");
-                        for (i, (doc_id, tf)) in original_postings.iter().enumerate() {
-                            assert_eq!(docs[i], *doc_id, "doc mismatch at index {i}");
-                            assert_eq!(tfs[i], *tf, "tf mismatch at index {i}");
-                        }
-
                         decoded_count += docs.len();
                     }
                     criterion::black_box(decoded_count);

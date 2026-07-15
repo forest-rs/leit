@@ -19,7 +19,7 @@ bench = false
 [dev-dependencies]
 criterion = { workspace = true }
 leit_core = { features = ["std"], workspace = true }
-leit_index = { features = ["std"], workspace = true }
+leit_index = { features = ["bench-internals", "std"], workspace = true }
 leit_postings = { features = ["std"], workspace = true }
 leit_text = { features = ["std"], workspace = true }
 leit_wind_tunnel = { workspace = true }
