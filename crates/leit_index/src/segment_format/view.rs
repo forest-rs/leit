@@ -206,6 +206,23 @@ mod tests {
     use super::*;
     use crate::segment_format::header::{FORMAT_VERSION, MAGIC};
 
+    fn empty_header() -> SegmentHeader {
+        SegmentHeader {
+            magic: MAGIC,
+            version: FORMAT_VERSION,
+            format_flags: 0,
+            document_count: 0,
+            field_table_offset: 80,
+            lexicon_offset: 80,
+            postings_table_offset: 80,
+            postings_data_offset: 80,
+            block_meta_offset: 80,
+            stored_fields_offset: 80,
+            columnar_offset: 80,
+            footer_offset: 80,
+        }
+    }
+
     #[test]
     fn test_reject_truncated_header() {
         let short_buf = [0_u8; 50];
@@ -252,6 +269,31 @@ mod tests {
         // Structural should fail
         let result = SegmentView::open_with_validation(&buf, ValidationMode::Structural);
         assert!(result.is_err(), "Structural rejects out-of-bounds offsets");
+    }
+
+    #[test]
+    fn structural_rejects_sections_overlapping_header() {
+        let mut header = empty_header();
+        header.field_table_offset = 0;
+        header.lexicon_offset = 80;
+        header.postings_table_offset = 80;
+        header.postings_data_offset = 80;
+        header.block_meta_offset = 80;
+        header.stored_fields_offset = 80;
+        header.columnar_offset = 80;
+        header.footer_offset = 80;
+        let mut bytes = [0_u8; 84];
+        bytes[..80].copy_from_slice(&header.encode());
+
+        assert!(SegmentView::open(&bytes).is_err());
+    }
+
+    #[test]
+    fn structural_rejects_missing_footer_bytes() {
+        let header = empty_header();
+        let bytes = header.encode();
+
+        assert!(SegmentView::open(&bytes).is_err());
     }
 
     #[test]

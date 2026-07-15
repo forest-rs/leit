@@ -38,11 +38,28 @@ pub(crate) struct TermEntry {
 ///
 /// Postings are aggregated per term and stored in doc-sorted order (ascending doc ID).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct PostingEntry {
+pub struct PostingEntry {
     /// Document identifier (segment-local, u32).
     pub(crate) doc_id: u32,
     /// Term frequency (raw count of term occurrences in the document's field).
     pub(crate) term_freq: u32,
+}
+
+impl PostingEntry {
+    /// Create an immutable posting value for an [`ExecutableIndex`].
+    pub const fn new(doc_id: u32, term_freq: u32) -> Self {
+        Self { doc_id, term_freq }
+    }
+
+    /// Return the segment-local document identifier.
+    pub const fn doc_id(self) -> u32 {
+        self.doc_id
+    }
+
+    /// Return the term frequency for this document.
+    pub const fn term_freq(self) -> u32 {
+        self.term_freq
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

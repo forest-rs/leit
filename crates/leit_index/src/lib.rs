@@ -37,7 +37,7 @@ pub use index_surface::{
     ExecutableIndex, FieldStatsView, PlanningIndex, PostingBlockView, TermEntryView,
 };
 pub use leit_core::{FilterEvaluator, FilterSlotId, NoFilter};
-pub use memory::InMemoryIndex;
+pub use memory::{InMemoryIndex, PostingEntry};
 pub use search::{ExecutionStats, ExecutionWorkspace, SearchScorer};
 #[expect(
     deprecated,

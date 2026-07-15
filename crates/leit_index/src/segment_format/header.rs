@@ -234,6 +234,10 @@ impl SegmentHeader {
     /// # Returns
     /// `Ok(())` if layout is valid, or `SegmentError::BadSectionLayout` / `BadOffset`
     pub fn validate_layout(&self, buffer_len: u64) -> Result<(), SegmentError> {
+        if self.field_table_offset < HEADER_SIZE as u64 {
+            return Err(SegmentError::BadSectionLayout);
+        }
+
         // All offsets must be within buffer
         if self.field_table_offset > buffer_len {
             return Err(SegmentError::BadOffset {
@@ -282,6 +286,23 @@ impl SegmentHeader {
                 offset: self.footer_offset,
                 limit: buffer_len,
             });
+        }
+
+        let footer_end = self
+            .footer_offset
+            .checked_add(super::footer::FOOTER_SIZE as u64)
+            .ok_or(SegmentError::BadOffset {
+                offset: self.footer_offset,
+                limit: buffer_len,
+            })?;
+        if footer_end > buffer_len {
+            return Err(SegmentError::BadOffset {
+                offset: footer_end,
+                limit: buffer_len,
+            });
+        }
+        if footer_end != buffer_len {
+            return Err(SegmentError::BadSectionLayout);
         }
 
         // Sections must be ordered: field_table <= lexicon <= postings_table <= postings_data
@@ -492,7 +513,7 @@ mod tests {
             footer_offset: 1200,
         };
 
-        assert!(header.validate_layout(2000).is_ok());
+        assert!(header.validate_layout(1204).is_ok());
     }
 
     #[test]
@@ -513,7 +534,7 @@ mod tests {
             footer_offset: 1200,
         };
 
-        assert!(header.validate_layout(2000).is_ok());
+        assert!(header.validate_layout(1204).is_ok());
     }
 
     #[test]

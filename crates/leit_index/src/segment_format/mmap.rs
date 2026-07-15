@@ -9,8 +9,8 @@
 //! Memory-mapped segment view: owns a `memmap2::Mmap` handle and provides
 //! zero-copy, lifetime-safe access to segment sections without copying the mapped region.
 //!
-//! `MmapSegment` is a standard, production-ready way to open large segments that must
-//! reside on disk. The mmap'd bytes are viewable as a `SegmentView<'_>`, with the
+//! `MmapSegment` is an opt-in way to open large immutable segments that reside on
+//! disk. The mmap'd bytes are viewable as a `SegmentView<'_>`, with the
 //! lifetime tied to the mmap handle, preventing use-after-free. Thread-safety is
 //! provided by `memmap2::Mmap` (Send+Sync for read-only maps).
 
@@ -101,10 +101,16 @@ impl MmapSegment {
     /// # Returns
     /// `Ok(MmapSegment)` if the file opened and header validated.
     ///
+    /// # Safety
+    ///
+    /// The mapped file's contents and length must not be modified through any file
+    /// descriptor or external process for the lifetime of the returned mapping.
+    /// Violating this invariant can make later reads from the mapping undefined.
+    ///
     /// # Errors
     /// - `MmapError::Io` if the file cannot be opened or mmap'd
     /// - `MmapError::Segment` if header validation fails (bad magic, unsupported version)
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, MmapError> {
+    pub unsafe fn open<P: AsRef<Path>>(path: P) -> Result<Self, MmapError> {
         let file = std::fs::File::open(path)?;
 
         // SAFETY: The unsafe mmap operation is sound if the file is never externally
@@ -173,6 +179,12 @@ mod tests {
     use leit_core::FieldId;
     use leit_text::FieldAnalyzers;
     use std::io::Write;
+
+    fn open_test_segment<P: AsRef<Path>>(path: P) -> Result<MmapSegment, MmapError> {
+        // SAFETY: Each test owns a unique temporary file and does not mutate or
+        // truncate it while the returned mapping is alive.
+        unsafe { MmapSegment::open(path) }
+    }
 
     /// Helper: build a unique temp file path for a test. A process-wide counter plus the process id
     /// guarantee uniqueness even when several tests run concurrently and request a path within the
@@ -315,7 +327,7 @@ mod tests {
         let temp_path = write_test_segment_to_file(&index).expect("write segment to temp file");
 
         // Open the file via mmap; should succeed if header is valid.
-        let result = MmapSegment::open(&temp_path);
+        let result = open_test_segment(&temp_path);
         assert!(result.is_ok(), "mmap_open should succeed for valid segment");
 
         let _ = std::fs::remove_file(&temp_path);
@@ -331,7 +343,7 @@ mod tests {
         file.sync_all().expect("sync file");
         drop(file);
 
-        let result = MmapSegment::open(&temp_path);
+        let result = open_test_segment(&temp_path);
         assert!(result.is_err(), "mmap_open should reject truncated file");
 
         let _ = std::fs::remove_file(&temp_path);
@@ -351,7 +363,7 @@ mod tests {
         file.sync_all().expect("sync file");
         drop(file);
 
-        let result = MmapSegment::open(&temp_path);
+        let result = open_test_segment(&temp_path);
         assert!(result.is_err(), "mmap_open should reject bad magic");
 
         let _ = std::fs::remove_file(&temp_path);
@@ -371,7 +383,7 @@ mod tests {
         };
 
         // Open via mmap.
-        let mmap_segment = MmapSegment::open(&temp_path).expect("mmap open");
+        let mmap_segment = open_test_segment(&temp_path).expect("mmap open");
         let mmap_view = mmap_segment.as_view().expect("mmap as_view");
 
         // Open via buffer.
@@ -525,7 +537,7 @@ mod tests {
 
         // Open via mmap: header-only validation succeeds.
         let mmap_segment =
-            MmapSegment::open(&temp_path).expect("mmap open with valid header should succeed");
+            open_test_segment(&temp_path).expect("mmap open with valid header should succeed");
 
         // Attempt to get a view: structural validation should detect the corruption.
         // Corruption in field table causes the section readers to fail when iterating entries.
@@ -577,7 +589,7 @@ mod tests {
 
         // Attempt to open via mmap: header-only validation should succeed (we only wrote header).
         let mmap_segment =
-            MmapSegment::open(&temp_path).expect("mmap open with valid header should succeed");
+            open_test_segment(&temp_path).expect("mmap open with valid header should succeed");
 
         // Attempt to get a view: structural validation should detect the truncation
         // because offsets in the header point beyond the truncated file size.
@@ -605,7 +617,7 @@ mod tests {
         std::fs::write(&temp_path, &bytes).expect("rewrite corrupted segment");
 
         let mmap_segment =
-            MmapSegment::open(&temp_path).expect("mmap open with valid header should succeed");
+            open_test_segment(&temp_path).expect("mmap open with valid header should succeed");
 
         assert!(
             mmap_segment.as_view().is_ok(),
@@ -626,7 +638,7 @@ mod tests {
         let index = build_test_index();
         let temp_path = write_test_segment_to_file(&index).expect("write segment to temp file");
 
-        let mmap_segment = MmapSegment::open(&temp_path).expect("mmap open");
+        let mmap_segment = open_test_segment(&temp_path).expect("mmap open");
         let view = mmap_segment.as_view().expect("as_view");
 
         // Call the public accessors.

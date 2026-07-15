@@ -114,7 +114,7 @@ pub enum SegmentError {
         /// Segment buffer size limit.
         limit: u64,
     },
-    /// Section layout invalid: sections overlap or are mis-ordered (legacy directory format).
+    /// Section layout invalid: sections overlap or are misordered (legacy directory format).
     BadSectionLayout,
     /// Block metadata section malformed (reserved for future releases).
     InvalidBlockMeta,
@@ -169,7 +169,7 @@ impl fmt::Display for SegmentError {
                 )
             }
             Self::BadSectionLayout => {
-                write!(f, "section layout invalid: sections overlap or mis-ordered")
+                write!(f, "section layout invalid: sections overlap or misordered")
             }
             Self::InvalidBlockMeta => {
                 write!(f, "block metadata section malformed")
