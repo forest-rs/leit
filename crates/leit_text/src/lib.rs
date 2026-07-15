@@ -19,6 +19,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec::Vec;
+use core::num::NonZeroU64;
 use core::ops::Range;
 
 use icu_casemap::CaseMapper;
@@ -347,15 +348,39 @@ impl Analyzer {
     }
 }
 
+/// Stable caller-supplied identity for an analyzer schema.
+///
+/// The value is an opaque compatibility promise. Updating analyzers in a registry does not
+/// derive or change it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AnalysisSchemaId(NonZeroU64);
+
+impl AnalysisSchemaId {
+    /// Create an identity, returning `None` for the reserved zero value.
+    pub const fn new(value: u64) -> Option<Self> {
+        match NonZeroU64::new(value) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    /// Return the nonzero numeric identity.
+    pub const fn get(self) -> u64 {
+        self.0.get()
+    }
+}
+
 /// Registry of analyzers per field.
 pub struct FieldAnalyzers {
     analyzers: Vec<Option<Analyzer>>,
+    schema_id: Option<AnalysisSchemaId>,
 }
 
 impl core::fmt::Debug for FieldAnalyzers {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FieldAnalyzers")
             .field("analyzers_count", &self.analyzers.len())
+            .field("schema_id", &self.schema_id)
             .finish_non_exhaustive()
     }
 }
@@ -365,7 +390,32 @@ impl FieldAnalyzers {
     pub const fn new() -> Self {
         Self {
             analyzers: Vec::new(),
+            schema_id: None,
         }
+    }
+
+    /// Create an empty registry carrying an explicit schema identity.
+    pub const fn with_schema_id(schema_id: AnalysisSchemaId) -> Self {
+        Self {
+            analyzers: Vec::new(),
+            schema_id: Some(schema_id),
+        }
+    }
+
+    /// Return the explicit schema identity, if the caller supplied one.
+    pub const fn schema_id(&self) -> Option<AnalysisSchemaId> {
+        self.schema_id
+    }
+
+    /// Iterate over field IDs that currently have a configured analyzer.
+    pub fn registered_field_ids(&self) -> impl Iterator<Item = FieldId> + '_ {
+        self.analyzers
+            .iter()
+            .enumerate()
+            .filter_map(|(index, analyzer)| {
+                analyzer.as_ref()?;
+                u32::try_from(index).ok().map(FieldId::new)
+            })
     }
 
     /// Maximum supported field count.
@@ -407,6 +457,42 @@ impl Default for FieldAnalyzers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn analysis_schema_identity_is_explicit_nonzero_and_stable() {
+        assert!(AnalysisSchemaId::new(0).is_none());
+        let schema_id = AnalysisSchemaId::new(7).expect("nonzero schema ID");
+        assert_eq!(schema_id.get(), 7);
+
+        let mut analyzers = FieldAnalyzers::with_schema_id(schema_id);
+        assert_eq!(analyzers.schema_id(), Some(schema_id));
+        analyzers.set(FieldId::new(1), Analyzer::new(WhitespaceTokenizer::new()));
+        assert_eq!(analyzers.schema_id(), Some(schema_id));
+        analyzers.set(
+            FieldId::new(1),
+            Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
+        );
+        assert_eq!(analyzers.schema_id(), Some(schema_id));
+    }
+
+    #[test]
+    fn default_analyzer_registries_have_unspecified_schema_identity() {
+        assert_eq!(FieldAnalyzers::new().schema_id(), None);
+        assert_eq!(FieldAnalyzers::default().schema_id(), None);
+    }
+
+    #[test]
+    fn registered_field_ids_reports_only_configured_analyzers() {
+        let mut analyzers = FieldAnalyzers::new();
+        analyzers.set(FieldId::new(2), Analyzer::new(WhitespaceTokenizer::new()));
+        analyzers.set(FieldId::new(5), Analyzer::new(WhitespaceTokenizer::new()));
+
+        assert_eq!(
+            analyzers.registered_field_ids().collect::<Vec<_>>(),
+            vec![FieldId::new(2), FieldId::new(5)]
+        );
+    }
 
     #[test]
     fn test_whitespace_tokenizer() {
