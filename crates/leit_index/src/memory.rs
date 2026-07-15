@@ -24,9 +24,14 @@ pub(crate) struct TermEntry {
     pub(crate) term: String,
 }
 
+/// A single posting: a document ID and its term frequency for a term.
+///
+/// Postings are aggregated per term and stored in doc-sorted order (ascending doc ID).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct PostingEntry {
+    /// Document identifier (segment-local, u32).
     pub(crate) doc_id: u32,
+    /// Term frequency (raw count of term occurrences in the document's field).
     pub(crate) term_freq: u32,
 }
 
@@ -133,6 +138,22 @@ impl InMemoryIndex {
 
     pub(crate) const fn postings(&self) -> &BTreeMap<TermId, Vec<PostingEntry>> {
         &self.postings
+    }
+
+    /// Snapshot postings as primitive tuples for out-of-crate benchmarks.
+    #[cfg(feature = "bench-internals")]
+    #[doc(hidden)]
+    pub fn benchmark_postings(&self) -> Vec<Vec<(u32, u32)>> {
+        self.postings
+            .values()
+            .filter(|postings| !postings.is_empty())
+            .map(|postings| {
+                postings
+                    .iter()
+                    .map(|posting| (posting.doc_id, posting.term_freq))
+                    .collect()
+            })
+            .collect()
     }
 
     fn avg_field_doc_length(&self, field: FieldId) -> f32 {
