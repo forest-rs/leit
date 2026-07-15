@@ -26,6 +26,8 @@ mod cursor;
 mod error;
 mod index_surface;
 mod memory;
+mod merge;
+mod merge_policy;
 mod search;
 mod segment;
 mod segment_format;
@@ -38,6 +40,8 @@ pub use index_surface::{
 };
 pub use leit_core::{FilterEvaluator, FilterSlotId, NoFilter};
 pub use memory::{InMemoryIndex, PostingEntry};
+pub use merge::{MergeError, MergeRejected, MergedIndex, PreparedMerge, prepare_merge};
+pub use merge_policy::{SegmentSummary, select_merge_candidates};
 pub use search::{ExecutionStats, ExecutionWorkspace, SearchScorer};
 #[expect(
     deprecated,

@@ -15,7 +15,7 @@ use leit_postings::cursor::{
     CursorFactory, CursorStatus, DecodeScratch, DefaultCursorFactory, PostingsView, TfCursor,
 };
 use leit_query::{ExecutionPlan, FieldRegistry, QueryNode, QueryProgram, TermDictionary};
-use leit_text::FieldAnalyzers;
+use leit_text::{AnalysisSchemaId, FieldAnalyzers};
 
 use crate::cursor::{CursorSource, MemPostingsCursor};
 use crate::error::IndexError;
@@ -111,6 +111,8 @@ const fn u32_to_f32(value: u32) -> f32 {
 #[derive(Debug)]
 pub struct InMemoryIndex {
     pub(crate) analyzers: FieldAnalyzers,
+    pub(crate) analysis_schema_id: Option<AnalysisSchemaId>,
+    pub(crate) analysis_fields: Vec<FieldId>,
     pub(crate) documents: BTreeSet<u32>,
     pub(crate) terms_to_ids: BTreeMap<(FieldId, String), TermId>,
     pub(crate) term_entries: Vec<TermEntry>,
@@ -133,8 +135,12 @@ impl InMemoryIndex {
         field_names: BTreeMap<String, FieldId>,
         field_doc_lengths: BTreeMap<(u32, FieldId), u32>,
     ) -> Self {
+        let analysis_schema_id = analyzers.schema_id();
+        let analysis_fields = analyzers.registered_field_ids().collect();
         Self {
             analyzers,
+            analysis_schema_id,
+            analysis_fields,
             documents,
             terms_to_ids,
             term_entries,
@@ -144,6 +150,15 @@ impl InMemoryIndex {
             field_names,
             field_doc_lengths,
         }
+    }
+
+    /// Return the analyzer-schema identity captured when this index was built.
+    pub const fn analysis_schema_id(&self) -> Option<AnalysisSchemaId> {
+        self.analysis_schema_id
+    }
+
+    pub(crate) fn analysis_field_ids(&self) -> &[FieldId] {
+        &self.analysis_fields
     }
 
     /// Serialize the current index into a single validated segment buffer (Phase 2 DEC-05 format).
