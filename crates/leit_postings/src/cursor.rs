@@ -221,6 +221,20 @@ impl ScoreBound {
     }
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "the result is rounded upward when f32 cannot exactly represent the u32"
+)]
+fn term_frequency_upper_bound(value: u32) -> f32 {
+    let rounded = value as f32;
+    if rounded as u32 >= value {
+        rounded
+    } else {
+        f32::from_bits(rounded.to_bits() + 1)
+    }
+}
+
 // ============================================================================
 // T3: Layered Traits + CompressedCursor
 // ============================================================================
@@ -409,7 +423,7 @@ impl<'a> BlockCursor for CompressedCursor<'a> {
 
     fn block_max_score(&self) -> ScoreBound {
         self.current_block_summary()
-            .map(|s| ScoreBound::new(s.max_term_freq as f32))
+            .map(|s| ScoreBound::new(term_frequency_upper_bound(s.max_term_freq)))
             .unwrap_or(ScoreBound::new(0.0))
     }
 }
@@ -487,7 +501,8 @@ pub trait BlockDecoder {
     /// # Returns
     ///
     /// The count of documents decoded in the block, `Ok(0)` if `block_id` is past the
-    /// last block, or a `CodecError` on malformed input.
+    /// last block, or a `CodecError` on malformed input. On error, both output
+    /// buffers are empty.
     fn decode_block(
         &self,
         bytes: &[u8],
@@ -775,6 +790,21 @@ mod tests {
         // At the first block.
         assert_eq!(cursor.block_end_doc(), Some(20));
         assert_eq!(cursor.block_max_score().as_f32(), 7.0);
+    }
+
+    #[test]
+    fn block_max_score_never_rounds_below_term_frequency() {
+        let encoded =
+            DeltaVarintCodec.encode(&[(SegmentLocalDocId::new(10), TermFreq::new(16_777_217))]);
+        let summaries = [BlockSummary {
+            end_doc: 10,
+            max_term_freq: 16_777_217,
+        }];
+        let mut scratch = DecodeScratch::new();
+        let cursor = CompressedCursor::new(PostingsView::new(&encoded, &summaries), &mut scratch)
+            .expect("decode should succeed");
+
+        assert!(f64::from(cursor.block_max_score().as_f32()) >= 16_777_217_f64);
     }
 
     /// SCENARIO-0002 + SCENARIO-0009: `BlockCursor` trait is public; exposes API surface only.

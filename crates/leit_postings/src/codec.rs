@@ -531,86 +531,98 @@ impl crate::cursor::BlockDecoder for BlockDeltaCodec {
         out_docs.clear();
         out_tfs.clear();
 
-        if bytes.is_empty() {
-            return Err(CodecError::Truncated);
-        }
-        let marker = bytes[0];
-        if marker != CodecId::BlockDelta.to_u8() {
-            return Err(CodecError::BadMarker(marker));
-        }
-
-        let mut pos = 1;
-        let mut current_block = 0_usize;
-
-        while pos < bytes.len() {
-            // Block header: doc_count, first_doc, last_doc, doc_bytes_len.
-            let (doc_count, read) = decode_varint(&bytes[pos..])?;
-            pos += read;
-            let doc_count = doc_count as usize;
-            if doc_count == 0 {
-                return Err(CodecError::InvalidBlockCount);
-            }
-
-            let (first_doc, read) = decode_varint(&bytes[pos..])?;
-            pos += read;
-            let (last_doc, read) = decode_varint(&bytes[pos..])?;
-            pos += read;
-            let (doc_bytes_len, read) = decode_varint(&bytes[pos..])?;
-            pos += read;
-            let doc_bytes_len = doc_bytes_len as usize;
-
-            if pos + doc_bytes_len > bytes.len() {
+        let result = (|| {
+            if bytes.is_empty() {
                 return Err(CodecError::Truncated);
             }
+            let marker = bytes[0];
+            if marker != CodecId::BlockDelta.to_u8() {
+                return Err(CodecError::BadMarker(marker));
+            }
 
-            if current_block == block_id {
-                // Decode this block's doc stream.
-                let doc_stream = &bytes[pos..pos + doc_bytes_len];
-                let mut doc_pos = 0;
-                let mut prev_doc = 0_u32;
-                for _ in 0..doc_count {
-                    if doc_pos >= doc_stream.len() {
-                        return Err(CodecError::Truncated);
+            let mut pos = 1;
+            let mut current_block = 0_usize;
+
+            while pos < bytes.len() {
+                // Block header: doc_count, first_doc, last_doc, doc_bytes_len.
+                let (doc_count, read) = decode_varint(&bytes[pos..])?;
+                pos += read;
+                let doc_count = doc_count as usize;
+                if doc_count == 0 || doc_count > BLOCK_DOC_COUNT {
+                    return Err(CodecError::InvalidBlockCount);
+                }
+
+                let (first_doc, read) = decode_varint(&bytes[pos..])?;
+                pos += read;
+                let (last_doc, read) = decode_varint(&bytes[pos..])?;
+                pos += read;
+                let (doc_bytes_len, read) = decode_varint(&bytes[pos..])?;
+                pos += read;
+                let doc_bytes_len = doc_bytes_len as usize;
+
+                let doc_stream_end = pos
+                    .checked_add(doc_bytes_len)
+                    .filter(|end| *end <= bytes.len())
+                    .ok_or(CodecError::Truncated)?;
+
+                if current_block == block_id {
+                    // Decode this block's doc stream.
+                    let doc_stream = &bytes[pos..doc_stream_end];
+                    let mut doc_pos = 0;
+                    let mut prev_doc = 0_u32;
+                    for _ in 0..doc_count {
+                        if doc_pos >= doc_stream.len() {
+                            return Err(CodecError::Truncated);
+                        }
+                        let (delta, read) = decode_varint(&doc_stream[doc_pos..])?;
+                        doc_pos += read;
+                        let doc_id = prev_doc
+                            .checked_add(delta)
+                            .ok_or(CodecError::InvalidVarint)?;
+                        out_docs.push(SegmentLocalDocId::new(doc_id));
+                        prev_doc = doc_id;
                     }
-                    let (delta, read) = decode_varint(&doc_stream[doc_pos..])?;
-                    doc_pos += read;
-                    let doc_id = prev_doc
-                        .checked_add(delta)
-                        .ok_or(CodecError::InvalidVarint)?;
-                    out_docs.push(SegmentLocalDocId::new(doc_id));
-                    prev_doc = doc_id;
-                }
-                if out_docs[0].get() != first_doc || prev_doc != last_doc {
-                    return Err(CodecError::BlockHeaderMismatch);
-                }
-                pos += doc_bytes_len;
+                    if doc_pos != doc_stream.len() {
+                        return Err(CodecError::InvalidVarint);
+                    }
+                    if out_docs[0].get() != first_doc || prev_doc != last_doc {
+                        return Err(CodecError::BlockHeaderMismatch);
+                    }
+                    pos = doc_stream_end;
 
-                // Decode this block's TF stream.
+                    // Decode this block's TF stream.
+                    for _ in 0..doc_count {
+                        if pos >= bytes.len() {
+                            return Err(CodecError::Truncated);
+                        }
+                        let (tf, read) = decode_varint(&bytes[pos..])?;
+                        pos += read;
+                        out_tfs.push(TermFreq::new(tf));
+                    }
+                    return Ok(doc_count);
+                }
+
+                // Not the target block: skip its doc stream (O(1)) and step over TF varints.
+                pos = doc_stream_end;
                 for _ in 0..doc_count {
                     if pos >= bytes.len() {
                         return Err(CodecError::Truncated);
                     }
-                    let (tf, read) = decode_varint(&bytes[pos..])?;
+                    let (_, read) = decode_varint(&bytes[pos..])?;
                     pos += read;
-                    out_tfs.push(TermFreq::new(tf));
                 }
-                return Ok(doc_count);
+                current_block += 1;
             }
 
-            // Not the target block: skip its doc stream (O(1)) and step over TF varints.
-            pos += doc_bytes_len;
-            for _ in 0..doc_count {
-                if pos >= bytes.len() {
-                    return Err(CodecError::Truncated);
-                }
-                let (_, read) = decode_varint(&bytes[pos..])?;
-                pos += read;
-            }
-            current_block += 1;
+            // block_id is past the last block.
+            Ok(0)
+        })();
+
+        if result.is_err() {
+            out_docs.clear();
+            out_tfs.clear();
         }
-
-        // block_id is past the last block.
-        Ok(0)
+        result
     }
 }
 
@@ -1355,6 +1367,44 @@ mod tests {
 
         assert_eq!(
             codec.decode(&corrupt, &mut docs, &mut tfs),
+            Err(CodecError::InvalidVarint)
+        );
+    }
+
+    #[test]
+    fn test_decode_block_error_clears_partial_output() {
+        let codec = BlockDeltaCodec;
+        let mut corrupt = codec.encode(&[
+            (SegmentLocalDocId::new(3), TermFreq::new(1)),
+            (SegmentLocalDocId::new(7), TermFreq::new(2)),
+        ]);
+        corrupt[2] = 4;
+        let mut docs = vec![SegmentLocalDocId::new(99)];
+        let mut tfs = vec![TermFreq::new(99)];
+
+        assert_eq!(
+            crate::cursor::BlockDecoder::decode_block(&codec, &corrupt, 0, &mut docs, &mut tfs,),
+            Err(CodecError::BlockHeaderMismatch)
+        );
+        assert!(docs.is_empty());
+        assert!(tfs.is_empty());
+    }
+
+    #[test]
+    fn test_decode_block_rejects_unconsumed_doc_stream_bytes() {
+        let codec = BlockDeltaCodec;
+        let encoded = codec.encode(&[
+            (SegmentLocalDocId::new(10), TermFreq::new(2)),
+            (SegmentLocalDocId::new(20), TermFreq::new(3)),
+        ]);
+        let mut corrupt = encoded.clone();
+        corrupt[4] = 3;
+        corrupt.insert(8, 0);
+        let mut docs = Vec::new();
+        let mut tfs = Vec::new();
+
+        assert_eq!(
+            crate::cursor::BlockDecoder::decode_block(&codec, &corrupt, 0, &mut docs, &mut tfs,),
             Err(CodecError::InvalidVarint)
         );
     }
