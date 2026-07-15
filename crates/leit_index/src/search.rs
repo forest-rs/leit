@@ -10,12 +10,14 @@ use leit_query::{ExecutionPlan, Planner, PlannerScratch, PlanningContext};
 use leit_score::{Bm25FScorer, Bm25Scorer, FieldStats, Scorer, ScoringStats};
 
 use crate::error::IndexError;
+use crate::index_surface::PlanningIndex;
 use crate::memory::InMemoryIndex;
 
 /// Reusable scratch buffers for high-level query execution.
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionWorkspace {
     planner: PlannerScratch,
+    default_fields: Vec<FieldId>,
     pub(crate) last_stats: ExecutionStats,
 }
 
@@ -167,16 +169,22 @@ impl ExecutionWorkspace {
     /// The filter's [`slots()`](FilterEvaluator::slots) are used to wrap the
     /// plan with [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes.
     /// Pass [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
-    pub fn plan<F: FilterEvaluator<u32>>(
+    pub fn plan<I, F>(
         &mut self,
-        index: &InMemoryIndex,
+        index: &I,
         query: &str,
         filter: &F,
-    ) -> Result<ExecutionPlan, IndexError> {
+    ) -> Result<ExecutionPlan, IndexError>
+    where
+        I: PlanningIndex,
+        F: FilterEvaluator<u32>,
+    {
         self.clear();
         let planner = Planner::new();
-        let default_fields = index.default_fields();
-        let context = PlanningContext::new(index, index).with_default_fields(default_fields);
+        self.default_fields.clear();
+        index.for_each_default_field(&mut |field| self.default_fields.push(field));
+        let context =
+            PlanningContext::new(index, index).with_default_fields(self.default_fields.clone());
         let mut plan = planner
             .plan(query, &context, &mut self.planner)
             .map_err(IndexError::Query)?;
@@ -190,18 +198,23 @@ impl ExecutionWorkspace {
     ///
     /// Fields absent from `field_weights` default to weight `1.0`. Invalid
     /// weights are rejected during planning.
-    pub fn plan_with_field_weights<F: FilterEvaluator<u32>>(
+    pub fn plan_with_field_weights<I, F>(
         &mut self,
-        index: &InMemoryIndex,
+        index: &I,
         query: &str,
         field_weights: BTreeMap<FieldId, f32>,
         filter: &F,
-    ) -> Result<ExecutionPlan, IndexError> {
+    ) -> Result<ExecutionPlan, IndexError>
+    where
+        I: PlanningIndex,
+        F: FilterEvaluator<u32>,
+    {
         self.clear();
         let planner = Planner::new();
-        let default_fields = index.default_fields();
+        self.default_fields.clear();
+        index.for_each_default_field(&mut |field| self.default_fields.push(field));
         let context = PlanningContext::new(index, index)
-            .with_default_fields(default_fields)
+            .with_default_fields(self.default_fields.clone())
             .try_with_field_weights(field_weights)
             .map_err(IndexError::Query)?;
         let mut plan = planner
@@ -233,8 +246,6 @@ impl ExecutionWorkspace {
     {
         self.last_stats = ExecutionStats::default();
         collectors.begin_query();
-        // Pruning is only safe when every active collector is non-exhaustive.
-        // If any collector needs all matches, shared execution must visit them all.
         let allow_pruning = !collectors.requires_exhaustive_matches();
 
         if collectors.needs_scores() {
@@ -314,6 +325,7 @@ impl ExecutionWorkspace {
 impl ScratchSpace for ExecutionWorkspace {
     fn clear(&mut self) {
         self.planner.reset();
+        self.default_fields.clear();
         self.last_stats = ExecutionStats::default();
     }
 }

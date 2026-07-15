@@ -85,8 +85,9 @@ retrieval path, so they can lag without constraining v1. Reserving header slots 
 
 **Decision:** A **fixed-layout, little-endian POD header** (bytemuck `Pod`,
 alignment-1 byte-field layout consistent with the ID types) as the first bytes of the
-segment. Fields: `magic` (u32), `version` (u32), `format_flags` (u32), then the
-section offsets **`field_table_offset`, `lexicon_offset`, `postings_table_offset`,
+segment. Fields: `magic` (u32), `version` (u32), `format_flags` (u32),
+`document_count` (u32, total documents in this segment), then the section offsets
+**`field_table_offset`, `lexicon_offset`, `postings_table_offset`,
 `postings_data_offset`, `block_meta_offset`, `stored_fields_offset`,
 `columnar_offset`, `footer_offset` (all u64 LE, per DEC-01)**. **Offsets are absolute
 from segment start.**
@@ -101,6 +102,19 @@ optional sections are present (DEC-10). Little-endian POD = the bytemuck zero-co
 premise.
 
 **Enforced by:** ITER-0004 (STORY-0090 AC-2, SCENARIO-0025).
+
+**Implementation note (ITER-0004 T2):** `SegmentHeader` (`crates/leit_index/src/segment_format/header.rs`)
+uses explicit manual little-endian field (de)serialization (`u64::from_le_bytes`/`to_le_bytes`) rather than
+a `bytemuck::from_bytes` Pod cast of the header struct. Two reasons: (1) the header is read exactly once per
+segment open, so a zero-copy cast of its 80 bytes is immaterial — the real zero-copy surface is the SECTION
+data, which the borrowed section readers (ITER-0004 T4, DEC-08) expose without copying; (2) manual
+`from_le_bytes` is endianness-correct on every host, whereas a native-field `#[repr(C)]` Pod cast would be
+wrong on big-endian and only the alignment-1 `[u8; N]`-byte-array Pod style (as the segment_ids types use)
+would be portable — adding accessor verbosity for no functional gain on a read-once struct. The on-disk byte
+layout is exactly as DEC-05 specifies (fixed LE, 80 bytes); only the in-memory access idiom differs.
+DOWNSTREAM (ITER-0005 mmap): keep this manual decode — do NOT convert the header to a native Pod cast.
+Also: the v1 magic is `b"LSG1"` (DISTINCT from legacy `b"LSEG"`) so legacy segments are cleanly rejected with
+`BadMagic` rather than misread (DEC-16 reject-and-rebuild + STORY-0039 never-silent-corruption).
 
 ## DEC-06 — Block-aware capability scope (STORY-0081)
 
@@ -193,6 +207,8 @@ algorithm finalized in ITER-0004 (rapidhash-family or crc32c).**
 
 **Enforced by:** ITER-0004.
 
+**Implementation note (ITER-0004 T3):** Footer is a 4-byte fixed-layout little-endian structure at `footer_offset` containing a single u32 CRC32C (Castagnoli, polynomial 0x1EDC6F41) checksum. The checksum covers all segment bytes from offset 0 up to (but not including) `footer_offset`, so it protects the header, all data sections, and block metadata. CRC32C was chosen over rapidhash (available in workspace dependencies) because rapidhash requires `std` and does not compile in `no_std+alloc` environments — leit_index must remain `no_std` compatible. CRC32C is deterministic, fast (bitwise loop per byte), and sufficient for detecting corruption. The checksum is computed via `compute_checksum()` and verified via `Footer::verify()`, called during `open_with_validation(Full)` in T6. No per-section checksums: a single segment-wide CRC32C is the minimal integrity check for v1 (DEC-10 rationale).
+
 ---
 
 ## Decisions epic anchor (STORY-0078)
@@ -234,9 +250,10 @@ format-break for segment size. The only residual bound is `SegmentLocalDocId` = 
 realistic single-segment doc count; it does not constrain Phase 3.
 
 **Forward constraint placed on ITER-0005 (block-metadata schema, STORY-0086):** the
-block-metadata section's v1 schema **must** carry, per block, at least `max_score` and
-the doc-range needed for WAND/MaxScore skipping, so Phase 3 can prune without a format
-change. Recorded here so the ITER-0005 doc-range decision honors it.
+block-metadata section's v1 schema **must** carry, per block, at least a scorer-agnostic
+impact upper bound (`max_term_freq` — see DEC-19; Phase 3 derives `max_score` from it at
+query time) and the doc-range needed for WAND/MaxScore skipping, so Phase 3 can prune without
+a format change. Recorded here so the ITER-0005 doc-range decision honors it.
 
 **Completed work check:** ITER-0000 (wind tunnel) is additive measurement infra and
 boxes nothing; its STORY-0105 real-corpus path is explicitly a Phase 3+ plug-in against
@@ -259,6 +276,46 @@ WAND consumes — defining them now *helps* Phase 3.
 | DEC-10 versioning/checks | STORY-0047 | ITER-0004 | version-rejection |
 | DEC-11 block boundary strategy | STORY-0087 | ITER-0002 (codec) / ITER-0004 (writer) | block codec conformance |
 | DEC-12 v1 postings/block layout | STORY-0088 | ITER-0002 | SCENARIO-0006 |
+| DEC-13 decode-scratch ownership | STORY-0079/0089 | ITER-0003 | SCENARIO-0019/0024 |
+| DEC-14 TF/positions/payloads cursor | STORY-0080 | ITER-0003 | cursor trait tests |
+| DEC-15 index→cursor integration | STORY-0001 | ITER-0003B | SCENARIO-0026 |
+| DEC-16 Phase 1 deprecation | N/A | ITER-0004 | DirectorySegmentView shim |
+| DEC-17 block-meta placement | STORY-0085/0022 | ITER-0005 T1/T2/T3 | schema + reader + writer |
+| DEC-18 doc-range implicit | STORY-0086 | ITER-0005 T1/T2/T3/T4 | schema + round-trip |
+| DEC-19 block-meta content schema | STORY-0023/0034 AC-1 | ITER-0005 T1/T2/T3/T4 | POD round-trip + cursor lowering |
+| DEC-20 migration tooling + deprecation | STORY-0033 AC-1/AC-2 | ITER-0005 T8 | rewrite round-trip |
+| DEC-21 mmap loading + thread-safety | STORY-0027/0037 | ITER-0005 T7 | SCENARIO-0018/0025 equivalence tests |
+
+---
+
+## DEC-20 — Segment migration tooling and deprecation policy (STORY-0033 AC-1/AC-2) — RESOLVED
+
+**Decision:** The v1 segment format is **supported unbounded with no planned sunset**. The migration framework establishes a **version-dispatch mechanism** for future versions:
+- **Current version (v1):** supported indefinitely.
+- **Supported versions set:** only v1; future versions may define a sliding window (e.g., "last 2 versions") when v2 is introduced.
+- **Migration entry point:** `migrate_to_current(bytes: &[u8]) -> Result<Cow<'_, [u8]>, SegmentError>` (module `segment_format::migrate`) validates the segment version and:
+  - If v1 (current): structurally validate and return borrowed bytes unchanged (identity migration).
+  - If older but supported: apply a version-specific rewrite handler (placeholder for future versions).
+  - If unsupported: return `SegmentError::UnsupportedVersion{found, expected}` with the found version and expected FORMAT_VERSION, enabling tooling to report which version is required.
+- **Rejection is explicit and clean:** no silent pass-through of unknown versions; no assumptions about backward compatibility.
+
+**Migration policy details (STORY-0033 AC-2):**
+1. **v1 unbounded support:** the first format version, v1, is never deprecated. This decision can be revisited when v2 ships; at that point, the policy will be recorded (e.g., "support last N versions") and implemented via a deprecation horizon in the migration dispatcher.
+2. **Deprecation window:** when v2 is introduced, the migration module will carry explicit version constants (e.g., `SUPPORTED_VERSIONS: &[u32] = &[1, 2]` or `&[2]` if v1 is dropped), and `migrate_to_current()` will dispatch version-by-version:
+   ```rust
+   match header.version {
+       1 => migrate_v1_to_current(bytes),
+       2 => migrate_v2_to_current(bytes),
+       unsupported => Err(UnsupportedVersion{found: unsupported, expected: FORMAT_VERSION})
+   }
+   ```
+3. **Rebuild-via-tooling:** segments at dropped versions are not automatically migrated in-place. Instead, they are cleanly rejected with an informative error; the operator must rebuild via offline tooling (re-index or batch rewrite).
+
+**Rationale:** Handover model: "explicit versioning + clean rejection, never silent corruption or misreading." A migration framework separates version concerns from read logic (v1 reader is version-agnostic; migration is an offline step). Unbounded v1 support avoids a premature deprecation deadline while leaving room for a formal policy in Phase 3.
+
+**Verification (STORY-0033 AC-3):** `migrate_to_current()` rejects unknown versions cleanly (test: mutate header version to 99, verify `UnsupportedVersion{found:99, expected:1}`). The ITER-0004 reader (`SegmentView::open()`) also rejects unknown versions at the same version-check seam (regression test confirms both paths reject consistently).
+
+**Enforced by:** ITER-0005 T8 (`segment_format::migrate` module).
 
 ---
 
@@ -401,3 +458,187 @@ direction; orphan rule satisfied — `leit_index` owns the cursor type, `leit_po
 
 **Evidence:** non-regression = all existing leit_index + integration tests stay green; ranking equivalence
 = SCENARIO-0026 (in-memory vs DeltaVarint vs BlockDelta cursor sources yield bit-identical top-k).
+
+## DEC-16 — Phase 1 segment format: DEPRECATE (frozen shim), then remove later (ITER-0004) — REVISED
+
+**Revision (2026-05-30, user decision):** the original "delete in ITER-0004" stance below is SOFTENED to
+**deprecate, don't delete**. The Phase 1 directory format is merged, upstream-accepted code (PR #1); rather
+than remove it in this PR, it is kept as a **frozen, `#[deprecated]` shim** so external code still compiles
+(with a deprecation warning) and legacy bytes remain readable. Concretely in ITER-0004 T7:
+- The new DEC-05 view becomes the canonical `leit_index::SegmentView`; `InMemoryIndex::to_segment_bytes`
+  emits the new format.
+- The old directory reader is RENAMED to `DirectorySegmentView` and marked `#[deprecated]`; `SectionKind`
+  stays exported, `#[deprecated]`. Both remain able to read legacy directory-format bytes (frozen — no
+  further development). A minimal test keeps the shim exercised.
+- A future release removes the shim. Downstream (ITER-0005 mmap, ITER-0006 merge) builds ONLY on the new
+  format; the shim is not extended.
+This keeps maintenance cost low (a frozen deprecated reader ≠ an actively-maintained dual path) while
+respecting accepted upstream code. The ITER-0004 PR description must flag the deprecation for Bruce.
+
+**Original decision (superseded by the revision above):** The DEC-05 fixed-header v1 segment format
+**replaces** the pre-existing Phase 1 directory-based segment format (`crates/leit_index/src/segment.rs`:
+`SegmentView`/`SectionKind` directory, u16 version, u32 offsets; writer `codec.rs::encode_segment` +
+`InMemoryIndex::to_segment_bytes`). No dual-path reader, no parallel v1/v2 coexistence. The Phase 1
+round-trip tests (`crates/leit_index/tests/segment_roundtrip.rs`, the segment portion of
+`crates/leit_integration_tests/tests/phase1_readiness.rs`) are migrated to assert against the new format.
+
+**Rationale:** leit is pre-1.0 with no production segments in existence — the Phase 1 format is a
+test-only serialization of the in-memory index, never persisted by any consumer. A dual-path or
+coexist strategy would add a second reader implementation, version-dispatch logic, and migration
+tooling to preserve compatibility with data that does not exist (KISS/YAGNI). The handover specifies a
+single clean versioned format with clean rejection of unknown versions, which `version: u32` + structured
+`SegmentError::UnsupportedVersion` already deliver. If real persisted segments ever predate this change,
+the correct recovery is an index rebuild, not a compatibility shim.
+
+**Surfaced by:** ITER-0004 PAR scope review (both reviewers flagged the undefined Phase 1 relationship as
+CRITICAL). Reviewer A leaned EVOLVE, Reviewer B leaned REPLACE; the orchestrator chose REPLACE on the
+no-production-data + pre-1.0 grounds above and the absence of any compatibility obligation in the spec.
+
+**Boxing-in:** None for downstream iterations. The replacement header is the complete DEC-05 layout
+(block_meta/stored_fields/columnar/footer offsets all reserved and written now, pointing at empty
+sections in v1-core), so ITER-0005 (block-meta content, mmap) and Phase 3 (columnar, stored fields)
+fill reserved slots without a header rewrite.
+
+**Verification:** ITER-0004 SCENARIO-0044 (write→read round-trip on the new format) + SCENARIO-0045
+(unknown-version clean rejection); the migrated Phase 1 tests stay green against the new format; the
+old directory format survives as a `#[deprecated] DirectorySegmentView` + `#[deprecated] SectionKind`
+shim with a retained test proving it still reads a legacy directory buffer (deprecation, not deletion,
+per the 2026-05-30 revision).
+
+## DEC-17 — Block-meta physical placement: single grouped fixed-width table (STORY-0085, STORY-0022) — RESOLVED
+
+**Decision:** The block-metadata sidecar is a **single grouped, fixed-width table** of
+`BlockMetadataEntry` structs in the `block_meta` section, addressed by the header's
+`block_meta_offset`. Each entry is 12 bytes (little-endian POD). A segment's postings blocks
+are stored in postings order (all blocks for term 0, then all blocks for term 1, etc.),
+so the table is contiguous and indexable.
+
+**Rationale:** O(1) seek via `block_meta_offset + block_index * 12` (no per-block header
+overhead, no variable-width encoding). Mmap-friendly (flat POD table, no heap pointers,
+viewable directly from a memory-mapped region). Simplest ITER-0006 merge rebuild: stream
+the new merged postings and recompute the block-summaries table sequentially into the new
+segment. An alternative (adjacent block-summaries per-term, stored inline with postings
+metadata) would require streaming access (slower for random block queries) and would bind
+block metadata to postings-table layout, forcing a format change if postings encoding
+evolves independently (e.g., per-term codec selection).
+
+**Term→block mapping:** Each postings-table entry carries `first_block_index` and
+`block_count` (fields to be added in ITER-0005 T3 writer). A term's blocks are the
+contiguous range `[first_block_index .. first_block_index+block_count)` in the `block_meta`
+table, accessed at offset `block_meta_offset + first_block_index*12`.
+
+**Enforced by:** ITER-0005 T1 (schema definition), T2 (reader), T3 (writer).
+
+## DEC-18 — Doc-range representation: implicit (re-derived from DEC-11 fixed 128-doc blocks) (STORY-0086) — RESOLVED
+
+**Decision:** Block doc-ranges are **implicit**, re-derived from DEC-11's fixed 128-doc-per-block
+boundaries. Each block's `end_doc` is stored (u32 LE, per the schema below), but `first_doc` is
+NOT stored — it is re-derived.
+
+**Derivation is PER-TERM, not global.** The block-meta table is segment-wide (blocks of all terms
+stored contiguously), so the implicit rule MUST be scoped to a single term's block range — located
+via `first_block_index` + `block_count` in that term's postings-table entry — never across a term
+boundary:
+- For block `i > 0` **within the same term**: `first_doc = (block[i-1].end_doc) + 1`.
+- For block `0` of a term (the term's first block): its lower bound is the term's first posting
+  doc-id. This is NOT a stored or table-derivable quantity — applying `prev.end_doc + 1` across the
+  preceding term's last block would be WRONG. The skip/WAND algorithm does not need it: skipping
+  uses only the monotonic per-block `end_doc` upper bounds (find the first block whose
+  `end_doc >= target`). The exact `first_doc` of a term's first block, if ever needed, comes from
+  decoding the first posting — it is deliberately not stored.
+
+The final block of a term may be short (fewer than 128 docs); its `end_doc` is the actual last doc
+in that term's postings, not padded.
+
+**Overhead:** Implicit representation = 4 bytes per block (only `end_doc`). Explicit
+representation (storing `(first_doc, last_doc)`) = 8 bytes per block. Implicit saves 50%
+space and computes the same data with O(1) arithmetic.
+
+**Forward compatibility with DEC-04:** The per-block bound (here, the doc-range) is
+sufficient for Phase 3 WAND pruning. The format does NOT require padding short final blocks;
+ITER-0006 merge may re-block postings with a different 128-doc alignment without violating
+the format.
+
+**Enforced by:** ITER-0005 T1 (schema definition), T2 (reader), T3 (writer), T4 (round-trip test).
+
+## DEC-19 — Block-meta v1 content schema: three fixed-width fields, LE POD (STORY-0023, STORY-0034 AC-1) — RESOLVED
+
+**Decision:** Each block-metadata entry is a **12-byte, little-endian, zero-copy POD** struct
+with three fields (each u32 LE):
+
+1. **`end_doc` (u32 LE):** Inclusive end document ID for this block. Per DEC-18, `first_doc`
+   is implicit and re-derived. The range `[first_doc, end_doc]` spans all documents in the
+   block.
+
+2. **`max_term_freq` (u32 LE):** **Scorer-agnostic impact upper bound**, NOT a BM25 `score`.
+   This is the maximum term frequency (raw, unscored) across all documents in the block.
+   **Reconciliation of DEC-04's "max_score" wording:** a segment v1 carries NO scorer
+   parameters (IDF, field weights, BM25 constants). Phase 3 WAND derives the actual query-time
+   `max_score` from `max_term_freq` at execution time, using the query's scorer params, with
+   **no segment format change** (the field remains `max_term_freq`). **Rejected alternative:**
+   storing BM25 `max_score` directly would require embedding scorer params (IDF, field
+   weights) in the segment, violating the scorer-agnostic principle (DEC-04); instead, the
+   executor recomputes scores from the scorer-agnostic `max_term_freq` bound.
+
+3. **`decode_offset` (u32 LE):** **Relative byte offset to the block's compressed payload**,
+   relative to the term's postings-data section start (i.e., relative to
+   `postings_data_offset + postings_data_offset_of_this_term`). This field is a segment-layer
+   detail; it is NOT part of the cursor-layer `BlockSummary{end_doc, max_term_freq}` that
+   Phase 3 WAND consumes. On ITER-0006 merge, the writer re-encodes postings into new blocks
+   at new absolute positions and recomputes the relative `decode_offset` from the merged
+   payload, with no format change (offsets remain relative).
+
+   **Width justification (u32 vs the u64 of DEC-01):** a u32 relative offset bounds a single
+   *term's* postings payload to 4 GiB. This is intentionally narrower than the u64 *segment*-level
+   offsets (DEC-01): segment offsets span the whole file (can exceed 4 GiB), whereas a per-term
+   payload realistically stays well under 4 GiB even for the most frequent term in a very large
+   corpus. Keeping the per-block entry at 12 bytes (3×u32) halves block-meta overhead vs a u64
+   offset. If a future corpus ever produces a single term exceeding 4 GiB of encoded postings,
+   ITER-0006 merge tooling can split that term across multiple postings entries; the format does
+   not break (the bound is a tooling constraint, not a hard format limit).
+
+**Entry layout (12 bytes, POD bytemuck #[repr(C)]):**
+```
+offset  0-3:  end_doc (u32 LE)
+offset  4-7:  max_term_freq (u32 LE)
+offset  8-11: decode_offset (u32 LE)
+```
+
+**Cursor lowering (lowers to `BlockSummary`, ITER-0005 T4):** The segment's
+`BlockMetadataEntry{end_doc, max_term_freq, decode_offset}` lowers into the cursor layer's
+`BlockSummary{end_doc, max_term_freq}` when constructing a block-aware cursor. The
+`decode_offset` is consumed only at the segment-reader level to locate compressed bytes;
+the cursor itself sees only the summary (end_doc, max_term_freq).
+
+**Enforced by:** ITER-0005 T1 (schema struct + round-trip bytemuck test),
+T2 (BlockMetadataReader), T3 (writer), T4 (overhead-bytes proof + cursor lowering).
+
+## DEC-21 — Memory-mapped segment loading: thread-safety model (STORY-0027, STORY-0037) — RESOLVED
+
+**Decision:** Segment files may be loaded into memory via `MmapSegment::open(path)`, which
+memory-maps the file and validates the header on construction. The mmap'd bytes are accessed
+via `as_view() -> SegmentView<'_>`, with the lifetime tied to the mmap handle. The feature is
+`mmap` (std-only, feature-gated); it is NOT included in no_std builds.
+
+**Thread-safety model:** `memmap2::Mmap` is `Send + Sync` for read-only maps. A `MmapSegment`
+owning the mmap handle can be wrapped in `Arc` and shared across threads. Each thread obtains
+a `SegmentView<'_>` borrowing the mmap region with a lifetime tied to the borrowing thread's
+scope. Rust's borrow-checking ensures no data races: the borrowed view cannot outlive either
+the mmap handle or the thread's stack frame. **Phase 3 ITER-0006 merge may safely read source
+segments in parallel**, wrapping `MmapSegment` in `Arc<MmapSegment>` and cloning the arc per
+thread; each thread constructs local `SegmentView`s that cannot escape the thread's lifetime.
+
+**Header validation:** On open, the header is validated (magic bytes and version checked) using
+`ValidationMode::HeaderOnly` to minimize latency. Callers may request structural or full
+validation via `as_view()`, which re-validates with the requested mode (offsets, section
+ordering, checksum, etc.).
+
+**Rejected alternatives:**
+- **Lazy validation (defer to first access):** complicates error handling and delays failure
+  detection. Eager validation on open (even lightweight header-only) catches I/O and corruption
+  early.
+- **Stored-in-memory snapshot:** defeats the purpose of mmap (zero-copy, large-file support).
+  The borrowed `SegmentView` lifetime already provides safety without copying.
+
+**Enforced by:** ITER-0005 T7 (MmapSegment + equivalence tests).
+**Unblocks:** ITER-0006 (merge may read source segments in parallel via `Arc<MmapSegment>`).

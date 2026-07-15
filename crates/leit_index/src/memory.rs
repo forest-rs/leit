@@ -17,10 +17,13 @@ use leit_postings::cursor::{
 use leit_query::{ExecutionPlan, FieldRegistry, QueryNode, QueryProgram, TermDictionary};
 use leit_text::FieldAnalyzers;
 
-use crate::codec::encode_segment;
 use crate::cursor::{CursorSource, MemPostingsCursor};
 use crate::error::IndexError;
+use crate::index_surface::{
+    ExecutableIndex, FieldStatsView, PlanningIndex, PostingBlockView, TermEntryView,
+};
 use crate::search::{ExecutionStats, FieldHit, SearchScorer};
+use crate::segment_format::writer::write_segment;
 
 pub(crate) const DEFAULT_POSTINGS_BLOCK_SIZE: usize = 2;
 
@@ -35,11 +38,28 @@ pub(crate) struct TermEntry {
 ///
 /// Postings are aggregated per term and stored in doc-sorted order (ascending doc ID).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct PostingEntry {
+pub struct PostingEntry {
     /// Document identifier (segment-local, u32).
     pub(crate) doc_id: u32,
     /// Term frequency (raw count of term occurrences in the document's field).
     pub(crate) term_freq: u32,
+}
+
+impl PostingEntry {
+    /// Create an immutable posting value for an [`ExecutableIndex`].
+    pub const fn new(doc_id: u32, term_freq: u32) -> Self {
+        Self { doc_id, term_freq }
+    }
+
+    /// Return the segment-local document identifier.
+    pub const fn doc_id(self) -> u32 {
+        self.doc_id
+    }
+
+    /// Return the term frequency for this document.
+    pub const fn term_freq(self) -> u32 {
+        self.term_freq
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -126,9 +146,9 @@ impl InMemoryIndex {
         }
     }
 
-    /// Serialize the current index into a single validated segment buffer.
+    /// Serialize the current index into a single validated segment buffer (Phase 2 DEC-05 format).
     pub fn to_segment_bytes(&self) -> Result<Vec<u8>, IndexError> {
-        encode_segment(self)
+        write_segment(self)
     }
 
     pub(crate) fn document_count(&self) -> u32 {
@@ -1000,6 +1020,81 @@ impl TermDictionary for InMemoryIndex {
     }
 }
 
+impl PlanningIndex for InMemoryIndex {
+    fn for_each_field(&self, f: &mut dyn FnMut(FieldId)) {
+        if self.field_stats.is_empty() {
+            for &field in self.field_names.values() {
+                f(field);
+            }
+        } else {
+            for stats in self.field_stats.values() {
+                f(stats.field_id);
+            }
+        }
+    }
+
+    fn for_each_default_field(&self, f: &mut dyn FnMut(FieldId)) {
+        for field in self.default_fields() {
+            f(field);
+        }
+    }
+}
+
+impl ExecutableIndex for InMemoryIndex {
+    fn document_count(&self) -> u32 {
+        Self::document_count(self)
+    }
+
+    fn field_stats(&self, field: FieldId) -> Option<FieldStatsView> {
+        self.field_stats.get(&field).map(|stats| FieldStatsView {
+            field_id: stats.field_id,
+            doc_count: stats.doc_count,
+            total_terms: stats.total_terms,
+        })
+    }
+
+    fn field_doc_length(&self, doc_id: u32, field: FieldId) -> u32 {
+        self.field_doc_lengths
+            .get(&(doc_id, field))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn for_each_doc(&self, f: &mut dyn FnMut(u32)) {
+        for &doc_id in &self.documents {
+            f(doc_id);
+        }
+    }
+
+    fn term_entry(&self, term: TermId) -> Option<TermEntryView<'_>> {
+        self.term_entries
+            .get(term.as_u32() as usize)
+            .map(|entry| TermEntryView {
+                field_id: entry.field_id,
+                term_id: entry.term_id,
+                term_text: entry.term.as_str(),
+            })
+    }
+
+    fn postings(&self, term: TermId) -> Option<&[PostingEntry]> {
+        self.postings.get(&term).map(Vec::as_slice)
+    }
+
+    fn for_each_posting_block(&self, term: TermId, f: &mut dyn FnMut(PostingBlockView)) {
+        let Some(blocks) = self.posting_blocks.get(&term) else {
+            return;
+        };
+        for block in blocks {
+            f(PostingBlockView {
+                start: block.start,
+                end: block.end,
+                max_term_freq: block.max_term_freq,
+                min_doc_length: block.min_doc_length,
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1129,6 +1224,8 @@ mod tests {
 
         // Test cases: single-term, OR (two terms), AND (two terms), fielded query.
         // Note: BM25F cross-field aggregation is NOT cursor-wired in ITER-0003B; stays InMemory.
+        // OR is also an intentional fallback today; it is included here as a non-regression
+        // check that the fallback preserves results under a compressed source request.
         let queries = alloc::vec![
             "programming",      // single-term: exercises Term node with source threading
             "rust OR systems",  // OR: verifies the documented InMemory fallback
