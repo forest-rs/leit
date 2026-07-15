@@ -4,9 +4,9 @@
 without wind-tunnel measurement*; the code that enforces it is implemented in the
 iteration noted under "Enforced by" (the deferred `· deferred:ITER-NNNN` ACs).
 
-**Grounding:** `docs/leit_kernel_handover.md` §"Segment Architecture" (the format
-sketch, versioning bias, and Open Questions) and the ITER-0001 serialization choice
-(bytemuck zero-copy, little-endian — see `docs/superpowers/iterations/requirements/EPIC-009.md`).
+**Grounding:** the Phase 2 handover's segment-architecture sketch, versioning bias,
+and open questions, plus the ITER-0001 serialization choice (bytemuck zero-copy,
+little-endian).
 
 **Cross-cutting premise:** segment-resident structures are **zero-copy POD** —
 `#[repr(transparent)]`/`#[repr(C)]` over little-endian byte fields, viewed in place

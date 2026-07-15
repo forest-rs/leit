@@ -25,7 +25,7 @@ macro_rules! segment_id {
         ///
         /// Fixed-width 4-byte little-endian value; viewable in place from mmap'd
         /// segment bytes via `bytemuck` (`Pod`).
-        #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Pod, Zeroable)]
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, Pod, Zeroable)]
         #[repr(transparent)]
         pub struct $name([u8; 4]);
 
