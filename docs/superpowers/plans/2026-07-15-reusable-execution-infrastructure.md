@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Preserve an executable pre-layout oracle, add trustworthy allocation measurement, reuse query/decode storage, flatten finalized postings, and record reproducible query/index allocation baselines.
+**Goal:** Preserve an independent executable reference, add trustworthy allocation measurement, reuse query/decode storage, flatten finalized postings, and record reproducible query/index allocation baselines.
 
-**Architecture:** Freeze the current BTreeMap-of-Vec representation and evaluator in a `bench-internals`-only module before changing production storage. Keep the caller-owned `ExecutionWorkspace` and collector reset contracts, add reusable scratch and a scoped owner-thread allocator counter, then convert finalized `InMemoryIndex` postings to a dense range table over one arena while retaining exact reference parity.
+**Architecture:** Maintain an independent BTreeMap-of-Vec representation and evaluator composition in a `bench-internals`-only module while sharing stable scorer primitives. Keep the caller-owned `ExecutionWorkspace` and collector reset contracts, add reusable scratch and a scoped owner-thread allocator counter, then convert finalized `InMemoryIndex` postings to a dense range table over one arena while retaining exact reference parity and hard-coded score-bit goldens.
 
 **Tech Stack:** Rust 2024, `no_std` + `alloc` core crates, `std::alloc::GlobalAlloc` instrumentation in `leit_wind_tunnel`, Criterion bench crates, Cargo feature gates, Jujutsu (`jj`), project scenario/citation validators.
 
@@ -14,8 +14,8 @@ Implementation protocol: use @test-driven-development for every RED/GREEN pair, 
 
 ## File responsibility map
 
-- `crates/leit_index/src/pre_iter7_reference.rs`: feature-gated frozen BTreeMap-of-Vec index, copied evaluator, and narrow primitive snapshot façade.
-- `crates/leit_index/tests/pre_iter7_reference_parity.rs`: named BM25/BM25F/boolean/filter parity matrix and feature-boundary proof.
+- `crates/leit_index/src/reference_execution.rs`: feature-gated frozen BTreeMap-of-Vec index, copied evaluator, and narrow primitive snapshot façade.
+- `crates/leit_index/tests/reference_execution_parity.rs`: named BM25/BM25F/boolean/filter parity matrix and feature-boundary proof.
 - `crates/leit_wind_tunnel/src/allocation.rs`: allocator wrapper, exclusive owner-thread measurement lease, frozen counter semantics, and snapshots; never installs a global allocator itself.
 - `crates/leit_wind_tunnel/tests/allocation_counter.rs`: test-binary global allocator plus isolation, failure, concurrency, foreign-thread, and unwind tests.
 - `crates/leit_collect/src/lib.rs`: capacity-preserving `TopKCollector::finish_into` seam.
@@ -38,30 +38,30 @@ Implementation protocol: use @test-driven-development for every RED/GREEN pair, 
 
 ## Chunk 1: Reference, instrumentation, and reusable query state
 
-### Task 1: Freeze the benchmark-only pre-layout reference
+### Task 1: Freeze the benchmark-only reference executor
 
 **Files:**
-- Create: `crates/leit_index/src/pre_iter7_reference.rs`
-- Create: `crates/leit_index/tests/pre_iter7_reference_stats.rs`
-- Create: `crates/leit_index/tests/pre_iter7_reference_parity.rs`
+- Create: `crates/leit_index/src/reference_execution.rs`
+- Create: `crates/leit_index/tests/reference_statistics.rs`
+- Create: `crates/leit_index/tests/reference_execution_parity.rs`
 - Create: `crates/leit_index/tests/reference_feature_boundary.rs`
 - Modify: `crates/leit_index/src/lib.rs:24-50`
 - Verify: `crates/leit_index/Cargo.toml:22-25`
 
 - [ ] **Step 1: Write the separate statistics-only target**
 
-In `pre_iter7_reference_stats.rs`, define one two-field document slice and `make_analyzers()` that constructs a fresh registry per index. Build the optimized index and missing reference from identical aliases/documents; assert only `(document_count, field_id/doc_count/total_terms)` tuples. Do not create/import `execute_snapshot` or the parity target yet.
+In `reference_statistics.rs`, define one two-field document slice and `make_analyzers()` that constructs a fresh registry per index. Build the optimized index and missing reference from identical aliases/documents; assert only `(document_count, field_id/doc_count/total_terms)` tuples. Do not create/import `execute_snapshot` or the parity target yet.
 
 ```rust
-let reference = PreIter7ReferenceIndex::from_documents(make_analyzers(), &aliases, &documents)?;
+let reference = ReferenceExecutionIndex::from_documents(make_analyzers(), &aliases, &documents)?;
 assert_eq!(reference.statistics_snapshot(), optimized_statistics(&optimized));
 ```
 
 - [ ] **Step 2: Run the feature-enabled test and observe RED**
 
-Run: `rtk cargo test -p leit_index --features bench-internals --test pre_iter7_reference_stats`
+Run: `rtk cargo test -p leit_index --features bench-internals --test reference_statistics`
 
-Expected: FAIL with unresolved import `leit_index::PreIter7ReferenceIndex`.
+Expected: FAIL with unresolved import `leit_index::ReferenceExecutionIndex`.
 
 - [ ] **Step 3: Implement only frozen construction/statistics**
 
@@ -69,10 +69,10 @@ Add the gated module/re-export. Copy construction/statistics into private `Refer
 
 ```rust
 #[doc(hidden)]
-pub struct PreIter7ReferenceIndex { /* all fields private */ }
+pub struct ReferenceExecutionIndex { /* all fields private */ }
 
 #[doc(hidden)]
-impl PreIter7ReferenceIndex {
+impl ReferenceExecutionIndex {
     pub fn from_documents(
         analyzers: FieldAnalyzers,
         aliases: &[(FieldId, &str)],
@@ -88,23 +88,23 @@ The module must not return `PostingEntry`, a postings slice/map, a cursor, or an
 
 - [ ] **Step 4: Create parity target with only single-term BM25 RED**
 
-Create `pre_iter7_reference_parity.rs` with the shared fixture/filter helpers and only `single_term_reference_matches`; plan once on optimized and use the same plan/top-1/top-16 on both. Run its filtered command. Expected compile RED: `execute_snapshot` is absent.
+Create `reference_execution_parity.rs` with the shared fixture/filter helpers and only `fielded_bm25_term_scores_match`; plan once on optimized and use the same plan/top-1/top-16 on both. Run its filtered command. Expected compile RED: `execute_snapshot` is absent.
 
 - [ ] **Step 5: Declare façade and implement only leaf scoring**
 
-Now declare `execute_snapshot(&ExecutionPlan, SearchScorer, &F, usize)`. Copy term scoring/collection; every non-Term node returns private `ReferenceEvalError::UnsupportedNode(NodeKind)`, mapped at the façade to an existing `IndexError`, with an in-module assertion of the exact private kind. Rerun Step 4. Expected GREEN with exact bits.
+Now declare `execute_snapshot(&ExecutionPlan, SearchScorer, &F, usize)`. Copy term traversal/collection while calling stable `SearchScorer` primitives; every non-Term node returns private `ReferenceEvalError::UnsupportedNode(NodeKind)`, mapped at the façade to an existing `IndexError`, with an in-module behavioral assertion of the exact private kind before mapping. Rerun Step 4. Expected GREEN with exact bits.
 
-- [ ] **Step 6: Write the boolean/fallback RED row**
+- [ ] **Step 6: Write the fielded OR RED row**
 
-Add only `boolean_fallback_reference_matches`; run: `rtk cargo test -p leit_index --features bench-internals --test pre_iter7_reference_parity boolean_fallback_reference_matches`. Expected runtime RED through private `UnsupportedNode(Or)`; target compiles.
+Add only `fielded_or_combines_term_scores`; run: `rtk cargo test -p leit_index --features bench-internals --test reference_execution_parity fielded_or_combines_term_scores`. Expected runtime RED through private `UnsupportedNode(Or)`; target compiles.
 
-- [ ] **Step 7: Implement only boolean/fallback and rerun Step 6**
+- [ ] **Step 7: Implement boolean operators and rerun Step 6**
 
 Copy `Or`/term expansion, `And`, `Not`, and `ConstantScore` BTreeSet/BTreeMap behavior. Expected GREEN with exact bits/order.
 
 - [ ] **Step 8: Write the filter RED row**
 
-Add only `filtered_reference_matches`; run: `rtk cargo test -p leit_index --features bench-internals --test pre_iter7_reference_parity filtered_reference_matches`. Expected runtime RED through private `UnsupportedNode(ExternalFilter)`; target compiles.
+Add only `fielded_term_rejects_document_29`; run: `rtk cargo test -p leit_index --features bench-internals --test reference_execution_parity fielded_term_rejects_document_29`. Expected runtime RED through private `UnsupportedNode(ExternalFilter)`; target compiles.
 
 - [ ] **Step 9: Implement only filtering and rerun Step 8**
 
@@ -112,15 +112,15 @@ Copy `ExternalFilter` dispatch/retention. Expected GREEN at top-1/top-16.
 
 - [ ] **Step 10: Write the BM25F RED row**
 
-Add only `unfielded_bm25f_reference_matches`; run: `rtk cargo test -p leit_index --features bench-internals --test pre_iter7_reference_parity unfielded_bm25f_reference_matches`. Expected runtime RED through private `UnsupportedNode(TermExpansion)`; target compiles.
+Add only `unfielded_bm25f_combines_field_hits`; run: `rtk cargo test -p leit_index --features bench-internals --test reference_execution_parity unfielded_bm25f_combines_field_hits`. Expected runtime RED through private `UnsupportedNode(TermExpansion)`; target compiles.
 
 - [ ] **Step 11: Implement only BM25F and rerun Step 10**
 
-Copy `eval_bm25f_term_expansion`/`score_term_fields` exactly (zero-TF fields, average lengths, boosts, ties). Expected GREEN with exact bits.
+Copy the `eval_bm25f_term_expansion` composition exactly (zero-TF fields, average lengths, boosts, ties) while calling the stable `score_term_fields` primitive. Expected GREEN with exact bits.
 
 - [ ] **Step 12: Prove the real Cargo feature boundary**
 
-In `reference_feature_boundary.rs`, derive the dependency path from `PathBuf::from(env!("CARGO_MANIFEST_DIR"))`, write a unique temp consumer importing `PreIter7ReferenceIndex`, and run nested offline Cargo with a unique target. Assert feature-off unresolved import; rewrite only the dependency with `features = ["bench-internals"]` and assert success. Cleanup via guard.
+In `reference_feature_boundary.rs`, derive the dependency path from `PathBuf::from(env!("CARGO_MANIFEST_DIR"))`, write a unique temp consumer importing `ReferenceExecutionIndex`, copy and offline-normalize the workspace lock for that standalone root, and run both nested checks with `--locked --offline` plus a unique target. Assert feature-off unresolved import; rewrite only the dependency with `features = ["bench-internals"]` and assert success. Cleanup via guard.
 
 Run: `rtk cargo test -p leit_index --test reference_feature_boundary -- --test-threads=1`
 
@@ -128,23 +128,25 @@ Expected: PASS after observing the feature-off compile failure and feature-on co
 
 - [ ] **Step 13: Prove the complete matrix and isolated normal docs**
 
-Run: `rtk cargo test -p leit_index --features bench-internals --test pre_iter7_reference_parity`
+Run: `rtk cargo test -p leit_index --features bench-internals --test reference_execution_parity`
 
 Expected: PASS for all eight matrix rows.
 
+The reference independently freezes storage, traversal, and evaluator composition while intentionally sharing stable `SearchScorer` primitives. Hard-coded score-bit goldens for fielded BM25, BM25 OR composition, unfielded BM25F field aggregation, and ConstantScore pin those primitive outputs against shared-scorer drift.
+
 Run: `rtk cargo check -p leit_index --no-default-features --features std`
 
-Expected: PASS without compiling `pre_iter7_reference`.
+Expected: PASS without compiling `reference_execution`.
 
 Run: `normal_doc_target="$(mktemp -d /private/tmp/leit-normal-doc.XXXXXX)"`, then `CARGO_TARGET_DIR="$normal_doc_target" rtk cargo rustdoc -p leit_index --no-default-features --features std -- -D warnings`.
 
-Expected: PASS; `rtk proxy rg -n "PreIter7ReferenceIndex|ReferencePosting" "$normal_doc_target/doc/leit_index"` returns no matches; archive/remove the unique directory through its guard.
+Expected: PASS; `rtk proxy rg -n "ReferenceExecutionIndex|ReferencePosting" "$normal_doc_target/doc/leit_index"` returns no matches; archive/remove the unique directory through its guard.
 
-- [ ] **Step 14: Commit the frozen oracle**
+- [ ] **Step 14: Commit the frozen reference executor**
 
 ```bash
-rtk jj file track crates/leit_index/src/pre_iter7_reference.rs crates/leit_index/tests/pre_iter7_reference_stats.rs crates/leit_index/tests/pre_iter7_reference_parity.rs crates/leit_index/tests/reference_feature_boundary.rs
-rtk jj commit -m "test(index): preserve pre-layout benchmark reference"
+rtk jj file track crates/leit_index/src/reference_execution.rs crates/leit_index/tests/reference_statistics.rs crates/leit_index/tests/reference_execution_parity.rs crates/leit_index/tests/reference_feature_boundary.rs
+rtk jj commit -m "test(index): preserve reference execution oracle"
 ```
 
 ### Task 2: Add the scoped shared allocation counter
@@ -531,7 +533,7 @@ rtk jj commit -m "feat(index): flatten postings and portable block records"
 ### Task 9: Compose parity and close the iteration
 
 **Files:**
-- Extend: `crates/leit_index/tests/pre_iter7_reference_parity.rs`
+- Extend: `crates/leit_index/tests/reference_execution_parity.rs`
 - Extend: `crates/leit_wind_tunnel/tests/query_allocation_baseline.rs`
 - Modify: `docs/2026-07-15-iteration-7-allocation-baselines.md`
 - Modify: `docs/superpowers/iterations/behavior-scenarios.md:264-292,750-778,2445-2465,2540-2564,2595-2621`
@@ -544,13 +546,13 @@ rtk jj commit -m "feat(index): flatten postings and portable block records"
 
 - [ ] **Step 1: Re-run the full reference matrix after every layout/reuse change**
 
-Extend the parity test to ensure every named case is built independently from the same inputs after flat-layout finalization. Run: `rtk cargo test -p leit_index --features bench-internals --test pre_iter7_reference_parity`
+Extend the parity test to ensure every named case is built independently from the same inputs after flat-layout finalization. Run: `rtk cargo test -p leit_index --features bench-internals --test reference_execution_parity`
 
 Expected: PASS for statistics, ordered IDs, and exact score bits at top-1 and top-16.
 
 - [ ] **Step 2: Replace all five scenario commands with concrete automation**
 
-Set SCENARIO-0007 to `mise exec -- cargo test -p leit_index --features bench-internals --test reusable_execution`; SCENARIO-0023 to `mise exec -- cargo test -p leit_wind_tunnel --test query_allocation_baseline -- --test-threads=1`; SCENARIO-0081 to `mise exec -- cargo test -p leit_wind_tunnel --test index_allocation_baseline -- --test-threads=1`; SCENARIO-0085 to `mise exec -- cargo test -p leit_index --features bench-internals --test pre_iter7_reference_parity`; SCENARIO-0087 to `mise exec -- cargo test -p leit_index --features bench-internals --test hot_layout`. Copy the same commands into `behavior-corpus.md` and update coverage/status records without changing deferred ITER-0008 ownership.
+Set SCENARIO-0007 to `mise exec -- cargo test -p leit_index --features bench-internals --test reusable_execution`; SCENARIO-0023 to `mise exec -- cargo test -p leit_wind_tunnel --test query_allocation_baseline -- --test-threads=1`; SCENARIO-0081 to `mise exec -- cargo test -p leit_wind_tunnel --test index_allocation_baseline -- --test-threads=1`; SCENARIO-0085 to `mise exec -- cargo test -p leit_index --features bench-internals --test reference_execution_parity`; SCENARIO-0087 to `mise exec -- cargo test -p leit_index --features bench-internals --test hot_layout`. Copy the same commands into `behavior-corpus.md` and update coverage/status records without changing deferred ITER-0008 ownership.
 
 - [ ] **Step 3: Run impacted scenarios and allocation evidence**
 

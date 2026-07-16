@@ -12,7 +12,7 @@ executable pre-change comparison path.
 
 Freeze the current BTreeMap-of-Vec index/evaluator behind `bench-internals`. Build the reference and
 optimized indexes separately from identical named fixture inputs. This preserves an executable
-pre-layout baseline without retaining legacy storage in production or widening inspection APIs.
+independent baseline without retaining reference storage in production or widening inspection APIs.
 
 ### One runtime index with two evaluators — rejected
 
@@ -29,7 +29,7 @@ The reference must remain executable.
 
 ### Reference boundary
 
-`PreIter7ReferenceIndex` owns the iteration-start BTreeMap-of-Vec postings representation and the
+`ReferenceExecutionIndex` owns an independently frozen BTreeMap-of-Vec postings representation and the
 matching evaluator. A `#[cfg(feature = "bench-internals")] #[doc(hidden)] pub` façade exposes only
 fixture construction plus primitive statistics/ranked-result snapshots needed by external integration
 and benchmark targets. The façade is absent when the feature is disabled and exposes neither
@@ -37,9 +37,11 @@ and benchmark targets. The façade is absent when the feature is disabled and ex
 boundary; it is not a security boundary.
 
 Reference and optimized indexes are built from the same named document inputs and analyzer
-configuration. Comparison uses the same query plan, scorer, filter, top-k, and corpus statistics.
+configuration. Comparison uses the same query plan, filter, top-k, corpus statistics, and stable
+`SearchScorer` primitives. The reference independently freezes storage, traversal, and evaluator
+composition; hard-coded fixture score bits pin the shared scorer primitives against drift.
 Relevant statistics, ordered document IDs, and score bits must match exactly across a named matrix:
-single-field BM25 term root, boolean/fallback execution, unfielded multi-field BM25F, and a deterministic
+single-field BM25 term, fielded OR/AND/NOT score composition, unfielded multi-field BM25F, and a deterministic
 nontrivial filter that excludes one otherwise matching document. Each case also runs at top-1 and a
 nontruncating top-k.
 

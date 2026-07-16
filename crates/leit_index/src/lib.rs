@@ -28,6 +28,8 @@ mod index_surface;
 mod memory;
 mod merge;
 mod merge_policy;
+#[cfg(feature = "bench-internals")]
+mod reference_execution;
 mod search;
 mod segment;
 mod segment_format;
@@ -44,6 +46,9 @@ pub use leit_postings::codec::CodecId;
 pub use memory::{InMemoryIndex, PostingEntry};
 pub use merge::{MergeError, MergeRejected, MergedIndex, PreparedMerge, prepare_merge};
 pub use merge_policy::{SegmentSummary, select_merge_candidates};
+#[cfg(feature = "bench-internals")]
+#[doc(hidden)]
+pub use reference_execution::ReferenceExecutionIndex;
 pub use search::{ExecutionStats, ExecutionWorkspace, SearchScorer};
 #[expect(
     deprecated,

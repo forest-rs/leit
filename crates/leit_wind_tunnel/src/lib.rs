@@ -39,6 +39,7 @@
     unused_lifetimes
 )]
 
+pub mod allocation;
 pub mod corpus;
 pub mod query_fixtures;
 pub mod vocabulary;
