@@ -32,6 +32,7 @@ mod search;
 mod segment;
 mod segment_format;
 mod segment_index;
+mod serialization;
 
 pub use builder::{InMemoryIndexBuilder, IndexBuilder};
 pub use error::{IndexError, SegmentError, ValidationMode};
@@ -39,6 +40,7 @@ pub use index_surface::{
     ExecutableIndex, FieldStatsView, PlanningIndex, PostingBlockView, TermEntryView,
 };
 pub use leit_core::{FilterEvaluator, FilterSlotId, NoFilter};
+pub use leit_postings::codec::CodecId;
 pub use memory::{InMemoryIndex, PostingEntry};
 pub use merge::{MergeError, MergeRejected, MergedIndex, PreparedMerge, prepare_merge};
 pub use merge_policy::{SegmentSummary, select_merge_candidates};
@@ -61,3 +63,4 @@ pub use segment_format::{
     PostingsDataReader, PostingsTableReader, SegmentHeader, SegmentView,
 };
 pub use segment_index::SegmentIndex;
+pub use serialization::{PreparedSegment, SegmentWriteError, prepare_serialization};

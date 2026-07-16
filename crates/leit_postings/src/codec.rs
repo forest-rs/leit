@@ -166,6 +166,118 @@ pub trait Codec {
     ) -> Result<(), CodecError>;
 }
 
+/// Return the exact encoded body length for a stream of postings, excluding the codec marker.
+///
+/// Segment writers use this to preflight payload sizes without first materializing codec input or
+/// output buffers. The same doc-sorted precondition as [`Codec::encode`] applies.
+pub fn encoded_body_len_from_iter<I>(codec_id: CodecId, postings: I) -> Option<u64>
+where
+    I: IntoIterator<Item = (SegmentLocalDocId, TermFreq)>,
+{
+    match codec_id {
+        CodecId::DeltaVarint => delta_varint_body_len(postings),
+        CodecId::BlockDelta => block_delta_body_len(postings),
+    }
+}
+
+fn varint_len(value: u32) -> u64 {
+    match value {
+        0..=0x7f => 1,
+        0x80..=0x3fff => 2,
+        0x4000..=0x1f_ffff => 3,
+        0x20_0000..=0x0fff_ffff => 4,
+        _ => 5,
+    }
+}
+
+fn delta_varint_body_len<I>(postings: I) -> Option<u64>
+where
+    I: IntoIterator<Item = (SegmentLocalDocId, TermFreq)>,
+{
+    let mut len = 0_u64;
+    let mut prev_doc = 0_u32;
+    for (doc_id, tf) in postings {
+        let doc = doc_id.get();
+        let delta = doc
+            .checked_sub(prev_doc)
+            .expect("postings must be doc-sorted ascending");
+        len = len.checked_add(varint_len(delta))?;
+        len = len.checked_add(varint_len(tf.get()))?;
+        prev_doc = doc;
+    }
+    Some(len)
+}
+
+fn block_delta_body_len<I>(postings: I) -> Option<u64>
+where
+    I: IntoIterator<Item = (SegmentLocalDocId, TermFreq)>,
+{
+    let mut total = 0_u64;
+    let mut count = 0_usize;
+    let mut first_doc = 0_u32;
+    let mut last_doc = 0_u32;
+    let mut prev_doc = 0_u32;
+    let mut doc_stream_len = 0_u64;
+    let mut tf_stream_len = 0_u64;
+
+    for (doc_id, tf) in postings {
+        if count == BLOCK_DOC_COUNT {
+            total = total.checked_add(block_body_len(
+                count,
+                first_doc,
+                last_doc,
+                doc_stream_len,
+                tf_stream_len,
+            )?)?;
+            count = 0;
+            prev_doc = 0;
+            doc_stream_len = 0;
+            tf_stream_len = 0;
+        }
+
+        let doc = doc_id.get();
+        if count == 0 {
+            first_doc = doc;
+        }
+        let delta = doc
+            .checked_sub(prev_doc)
+            .expect("postings must be doc-sorted ascending");
+        doc_stream_len = doc_stream_len.checked_add(varint_len(delta))?;
+        tf_stream_len = tf_stream_len.checked_add(varint_len(tf.get()))?;
+        last_doc = doc;
+        prev_doc = doc;
+        count += 1;
+    }
+
+    if count != 0 {
+        total = total.checked_add(block_body_len(
+            count,
+            first_doc,
+            last_doc,
+            doc_stream_len,
+            tf_stream_len,
+        )?)?;
+    }
+    Some(total)
+}
+
+fn block_body_len(
+    count: usize,
+    first_doc: u32,
+    last_doc: u32,
+    doc_stream_len: u64,
+    tf_stream_len: u64,
+) -> Option<u64> {
+    let count = u32::try_from(count).ok()?;
+    let doc_stream_len_u32 = u32::try_from(doc_stream_len).ok()?;
+    varint_len(count)
+        .checked_add(varint_len(first_doc))?
+        .checked_add(varint_len(last_doc))?
+        .checked_add(varint_len(doc_stream_len_u32))?
+        .checked_add(doc_stream_len)?
+        .checked_add(tf_stream_len)
+}
+
 /// Helper to encode a u32 as LEB128 varint.
 ///
 /// Writes 1–5 bytes into `out` (a `u32` LEB128 is at most 5 bytes, so a fixed
@@ -1233,6 +1345,68 @@ mod tests {
             "First doc of block 2 (critical boundary)"
         );
         assert_eq!(docs[255].get(), 255 * 100, "Last doc of block 2");
+    }
+
+    #[test]
+    fn exact_body_lengths_match_encoded_output_without_marker() {
+        for count in [0_usize, 1, 127, 128, 129, 300] {
+            let postings: Vec<(SegmentLocalDocId, TermFreq)> = (0..count)
+                .map(|i| {
+                    let value = u32::try_from(i).expect("fixture count fits u32");
+                    (
+                        SegmentLocalDocId::new(value * 137),
+                        TermFreq::new((value % 191) + 1),
+                    )
+                })
+                .collect();
+
+            let delta_encoded = DeltaVarintCodec.encode(&postings);
+            assert_eq!(
+                encoded_body_len_from_iter(CodecId::DeltaVarint, postings.iter().copied())
+                    .expect("length should fit"),
+                u64::try_from(delta_encoded.len() - 1).expect("encoded length fits u64"),
+                "DeltaVarint count {count}"
+            );
+
+            let block_encoded = BlockDeltaCodec.encode(&postings);
+            assert_eq!(
+                encoded_body_len_from_iter(CodecId::BlockDelta, postings.iter().copied())
+                    .expect("length should fit"),
+                u64::try_from(block_encoded.len() - 1).expect("encoded length fits u64"),
+                "BlockDelta count {count}"
+            );
+        }
+    }
+
+    #[test]
+    fn exact_body_lengths_cover_every_u32_varint_transition() {
+        let transitions = [
+            0x7f_u32,
+            0x80,
+            0x3fff,
+            0x4000,
+            0x1f_ffff,
+            0x20_0000,
+            0x0fff_ffff,
+            0x1000_0000,
+            u32::MAX,
+        ];
+
+        for value in transitions {
+            let postings = [(SegmentLocalDocId::new(value), TermFreq::new(value))];
+            for codec_id in [CodecId::DeltaVarint, CodecId::BlockDelta] {
+                let encoded = match codec_id {
+                    CodecId::DeltaVarint => DeltaVarintCodec.encode(&postings),
+                    CodecId::BlockDelta => BlockDeltaCodec.encode(&postings),
+                };
+                assert_eq!(
+                    encoded_body_len_from_iter(codec_id, postings.iter().copied())
+                        .expect("single-posting length must fit"),
+                    u64::try_from(encoded.len() - 1).expect("encoded length fits u64"),
+                    "codec {codec_id:?}, doc delta/TF value {value:#x}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -70,7 +70,7 @@ impl core::error::Error for IndexError {
 /// - `HeaderOnly`: validate magic, version, and header self-consistency.
 /// - `Structural`: (default) additionally validate all offsets are in-bounds and sections
 ///   are ordered/non-overlapping.
-/// - `Full`: additionally validate footer checksum and per-section structural invariants.
+/// - `Full`: additionally validate the footer checksum and postings encoding kind/marker mapping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ValidationMode {
     /// Validate magic and version only. Cheapest open.
@@ -78,7 +78,7 @@ pub enum ValidationMode {
     /// Validate header + offset in-bounds + section ordering (default). Safe and fast.
     #[default]
     Structural,
-    /// Validate everything including footer checksum and per-section invariants.
+    /// Validate layout, footer checksum, and postings encoding kinds/payload markers.
     Full,
 }
 
@@ -124,6 +124,24 @@ pub enum SegmentError {
         expected: u32,
         /// Actual checksum computed from buffer.
         found: u32,
+    },
+    /// A postings-table entry declares an encoding kind unknown to this reader.
+    UnknownPostingsEncoding {
+        /// Zero-based postings-table entry index.
+        postings_index: u32,
+        /// Unrecognized on-disk encoding discriminator.
+        encoding_kind: u32,
+    },
+    /// A compressed payload marker does not match its postings-table encoding kind.
+    PostingsEncodingMarkerMismatch {
+        /// Zero-based postings-table entry index.
+        postings_index: u32,
+        /// On-disk encoding discriminator from the postings table.
+        encoding_kind: u32,
+        /// Marker required by `encoding_kind`.
+        expected: u8,
+        /// Marker found at the payload start, or `None` for an empty payload.
+        found: Option<u8>,
     },
 
     // Legacy directory-format variants (replaced but kept for backward compat)
@@ -180,6 +198,22 @@ impl fmt::Display for SegmentError {
                     "checksum mismatch: expected 0x{expected:08x}, found 0x{found:08x}"
                 )
             }
+            Self::UnknownPostingsEncoding {
+                postings_index,
+                encoding_kind,
+            } => write!(
+                f,
+                "postings entry {postings_index} has unknown encoding kind {encoding_kind}"
+            ),
+            Self::PostingsEncodingMarkerMismatch {
+                postings_index,
+                encoding_kind,
+                expected,
+                found,
+            } => write!(
+                f,
+                "postings entry {postings_index} kind {encoding_kind} expects marker {expected}, found {found:?}"
+            ),
             // Legacy directory-format variants
             Self::InvalidMagic => write!(f, "invalid segment magic bytes"),
             Self::TruncatedHeader => write!(f, "truncated segment header"),
