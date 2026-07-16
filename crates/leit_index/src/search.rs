@@ -6,18 +6,27 @@ use alloc::vec::Vec;
 
 use leit_collect::{Collector, TopKCollector};
 use leit_core::{FieldId, FilterEvaluator, Score, ScoredHit, ScratchSpace};
+#[cfg(feature = "bench-internals")]
+use leit_postings::codec::CodecError;
+#[cfg(feature = "bench-internals")]
+use leit_postings::cursor::{
+    CompressedCursor, CursorFactory, DecodeScratch, DefaultCursorFactory, PostingsView,
+};
 use leit_query::{ExecutionPlan, Planner, PlannerScratch, PlanningContext};
-use leit_score::{Bm25FScorer, Bm25Scorer, FieldStats, Scorer, ScoringStats};
+use leit_score::{Bm25FScorer, Bm25Scorer, FieldStats, ScoringStats};
 
 use crate::error::IndexError;
 use crate::index_surface::PlanningIndex;
-use crate::memory::InMemoryIndex;
+use crate::memory::{EvaluationScratch, InMemoryIndex};
 
 /// Reusable scratch buffers for high-level query execution.
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionWorkspace {
     planner: PlannerScratch,
     default_fields: Vec<FieldId>,
+    pub(crate) evaluation: EvaluationScratch,
+    #[cfg(feature = "bench-internals")]
+    decode: DecodeScratch,
     pub(crate) last_stats: ExecutionStats,
 }
 
@@ -66,29 +75,30 @@ impl SearchScorer {
         doc_frequency: u32,
     ) -> Score {
         match self {
-            Self::Bm25(scorer) => scorer.score(&ScoringStats {
+            Self::Bm25(scorer) => score_bm25_term(
+                scorer,
                 term_frequency,
                 doc_length,
                 avg_doc_length,
                 doc_count,
                 doc_frequency,
-                ..ScoringStats::new()
-            }),
+                1.0,
+            ),
             Self::Bm25F(scorer) => {
-                let stats = ScoringStats {
+                let fields = [FieldStats {
+                    field_id: field,
                     term_frequency,
-                    doc_length,
+                    field_length: doc_length,
+                    weight: 1.0,
+                }];
+                score_bm25f_fields(
+                    scorer,
+                    &fields,
                     avg_doc_length,
                     doc_count,
                     doc_frequency,
-                    field_stats: alloc::vec![FieldStats {
-                        field_id: field,
-                        term_frequency,
-                        field_length: doc_length,
-                        weight: 1.0,
-                    }],
-                };
-                Scorer::score(&scorer, &stats).unwrap_or(Score::ZERO)
+                    1.0,
+                )
             }
         }
     }
@@ -103,19 +113,7 @@ impl SearchScorer {
     ) -> Score {
         let mut score = match self {
             Self::Bm25(scorer) => {
-                let mut score = Score::ZERO;
-                for hit in field_hits {
-                    let field_score = scorer.score(&ScoringStats {
-                        term_frequency: hit.term_frequency,
-                        doc_length: hit.field_length,
-                        avg_doc_length: hit.avg_field_length,
-                        doc_count,
-                        doc_frequency,
-                        ..ScoringStats::new()
-                    });
-                    score += field_score;
-                }
-                score
+                score_bm25_fields(scorer, field_hits, doc_count, doc_frequency, 1.0)
             }
             Self::Bm25F(scorer) => {
                 if field_hits.is_empty() {
@@ -140,6 +138,68 @@ impl SearchScorer {
     }
 }
 
+pub(crate) fn score_bm25_term(
+    scorer: Bm25Scorer,
+    term_frequency: u32,
+    doc_length: u32,
+    avg_doc_length: f32,
+    doc_count: u32,
+    doc_frequency: u32,
+    boost: f32,
+) -> Score {
+    let mut score = scorer.score(&ScoringStats {
+        term_frequency,
+        doc_length,
+        avg_doc_length,
+        doc_count,
+        doc_frequency,
+        ..ScoringStats::new()
+    });
+    if (boost - 1.0).abs() > f32::EPSILON {
+        score *= boost;
+    }
+    score
+}
+
+pub(crate) fn score_bm25_fields(
+    scorer: Bm25Scorer,
+    field_hits: &[FieldHit],
+    doc_count: u32,
+    doc_frequency: u32,
+    boost: f32,
+) -> Score {
+    let mut score = Score::ZERO;
+    for hit in field_hits {
+        score += scorer.score(&ScoringStats {
+            term_frequency: hit.term_frequency,
+            doc_length: hit.field_length,
+            avg_doc_length: hit.avg_field_length,
+            doc_count,
+            doc_frequency,
+            ..ScoringStats::new()
+        });
+    }
+    if (boost - 1.0).abs() > f32::EPSILON {
+        score *= boost;
+    }
+    score
+}
+
+pub(crate) fn score_bm25f_fields(
+    scorer: Bm25FScorer,
+    fields: &[FieldStats],
+    avg_doc_length: f32,
+    doc_count: u32,
+    doc_frequency: u32,
+    boost: f32,
+) -> Score {
+    let mut score = scorer.score(fields, avg_doc_length, doc_count, doc_frequency);
+    if (boost - 1.0).abs() > f32::EPSILON {
+        score *= boost;
+    }
+    score
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct FieldHit {
     pub(crate) field: FieldId,
@@ -162,6 +222,34 @@ impl ExecutionWorkspace {
     #[must_use]
     pub const fn last_stats(&self) -> ExecutionStats {
         self.last_stats
+    }
+
+    /// Return retained execution-buffer capacities for allocation evidence.
+    #[cfg(feature = "bench-internals")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn benchmark_scratch_capacities(&self) -> crate::memory::BenchmarkScratchCapacities {
+        self.evaluation.benchmark_capacities()
+    }
+
+    /// Return retained compressed-decode capacities for allocation evidence.
+    #[cfg(feature = "bench-internals")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn benchmark_decode_capacities(&self) -> leit_postings::cursor::DecodeCapacities {
+        self.decode.benchmark_capacities()
+    }
+
+    /// Decode an already encoded postings view into this workspace's retained buffers.
+    ///
+    /// Encoding and view construction belong outside a measured execution window.
+    #[cfg(feature = "bench-internals")]
+    #[doc(hidden)]
+    pub fn decode_prepared_postings<'a>(
+        &'a mut self,
+        view: PostingsView<'a>,
+    ) -> Result<CompressedCursor<'a>, CodecError> {
+        DefaultCursorFactory.open_doc_cursor(view, &mut self.decode)
     }
 
     /// Plan a textual query for this index using reusable scratch state.
@@ -248,34 +336,20 @@ impl ExecutionWorkspace {
         collectors.begin_query();
         let allow_pruning = !collectors.requires_exhaustive_matches();
 
-        if collectors.needs_scores() {
-            let scorer = scorer.ok_or(IndexError::MissingScorer)?;
-            if !index.try_execute_root(
-                plan,
-                scorer,
-                collectors,
-                &mut self.last_stats,
-                allow_pruning,
-                filter,
-            )? {
-                let result = index.evaluate_plan(plan, scorer, filter, &mut self.last_stats)?;
-                InMemoryIndex::collect_result(
-                    result,
-                    collectors,
-                    &mut self.last_stats,
-                    allow_pruning,
-                );
-            }
-        } else if !index.try_execute_root_unscored(
+        let scoring = if collectors.needs_scores() {
+            Some(scorer.ok_or(IndexError::MissingScorer)?)
+        } else {
+            None
+        };
+        index.execute_reusable(
             plan,
+            scoring,
+            filter,
+            &mut self.evaluation,
             collectors,
             &mut self.last_stats,
-            filter,
-        )? {
-            let matches = index.evaluate_matches(plan, filter)?;
-            InMemoryIndex::collect_matches(matches, collectors, &mut self.last_stats);
-        }
-        Ok(())
+            allow_pruning,
+        )
     }
 
     /// Plan and execute a textual query with an explicit scorer and filter.

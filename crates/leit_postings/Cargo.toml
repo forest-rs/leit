@@ -16,6 +16,7 @@ leit_core.workspace = true
 
 [features]
 default = ["std"]
+bench-internals = []
 std = ["leit_core/std"]
 
 [dev-dependencies]

@@ -183,6 +183,28 @@ impl<Id: EntityId> TopKCollector<Id> {
         Self::sorted_hits_from_heap(heap)
     }
 
+    /// Finalize the current query into a reusable result buffer.
+    ///
+    /// Existing results are cleared, and the retained hits are written in
+    /// descending score order. The collector retains its allocation, and a
+    /// sufficiently preallocated output buffer does not grow.
+    pub fn finish_into(&mut self, output: &mut Vec<ScoredHit<Id>>) {
+        output.clear();
+        while let Some(hit) = self.heap.pop() {
+            output.push(hit.0);
+        }
+        output.reverse();
+        self.min_score = Score::MIN;
+    }
+
+    /// Return the retained heap allocation capacity for benchmark assertions.
+    #[cfg(feature = "bench-internals")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn benchmark_heap_capacity(&self) -> usize {
+        self.heap.capacity()
+    }
+
     /// Number of retained hits for the current query.
     #[must_use]
     pub fn len(&self) -> usize {

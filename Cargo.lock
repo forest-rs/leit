@@ -654,8 +654,11 @@ dependencies = [
 name = "leit_wind_tunnel"
 version = "0.1.0"
 dependencies = [
+ "leit_collect",
  "leit_core",
  "leit_index",
+ "leit_postings",
+ "leit_query",
  "leit_text",
  "rapidhash",
 ]

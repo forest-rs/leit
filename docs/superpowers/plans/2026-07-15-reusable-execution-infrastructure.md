@@ -411,7 +411,7 @@ rtk jj commit -m "test(wind-tunnel): measure query allocation reuse"
 - Create: `crates/leit_wind_tunnel/tests/index_allocation_baseline.rs`
 - Modify: `crates/leit_wind_tunnel/Cargo.toml:18-25`
 - Modify: `crates/leit_wind_tunnel_index/Cargo.toml:17-30`
-- Create: `docs/2026-07-15-iteration-7-allocation-baselines.md`
+- Create: `docs/2026-07-16-index-allocation-baselines.md`
 
 - [ ] **Step 1: Write independent indexing-window tests**
 
@@ -419,7 +419,7 @@ Generate one named 100-document fixture and analyzers before either window. Meas
 
 - [ ] **Step 2: Run the indexing test and observe RED**
 
-Run: `rtk cargo test -p leit_wind_tunnel --test index_allocation_baseline -- --nocapture --test-threads=1`
+Run: `rtk proxy cargo test -p leit_wind_tunnel --test index_allocation_baseline -- --nocapture --test-threads=1`
 
 Expected: FAIL because the indexing baseline target and report do not exist.
 
@@ -436,18 +436,18 @@ Record the observed lines and exact command in the baseline document. State that
 
 - [ ] **Step 4: Verify test and prose agree**
 
-Run: `rtk cargo test -p leit_wind_tunnel --test index_allocation_baseline -- --nocapture --test-threads=1`
+Run: `rtk proxy cargo test -p leit_wind_tunnel --test index_allocation_baseline -- --nocapture --test-threads=1`
 
 Expected: PASS with two nonempty phase snapshots.
 
-Run: `rtk proxy rg -n "fixture=index-100|phase=insertion|phase=finalization|merge is excluded|no latency" docs/2026-07-15-iteration-7-allocation-baselines.md`
+Run: `rtk proxy rg -n "fixture=index-100|phase=insertion|phase=finalization|merge is excluded|no latency" docs/2026-07-16-index-allocation-baselines.md`
 
 Expected: six matching evidence lines.
 
 - [ ] **Step 5: Commit indexing baselines**
 
 ```bash
-rtk jj file track crates/leit_wind_tunnel/tests/index_allocation_baseline.rs docs/2026-07-15-iteration-7-allocation-baselines.md
+rtk jj file track crates/leit_wind_tunnel/tests/index_allocation_baseline.rs docs/2026-07-16-index-allocation-baselines.md
 rtk jj commit -m "test(wind-tunnel): separate indexing allocation phases"
 ```
 

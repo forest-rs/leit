@@ -8,6 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
+use leit_core::{SegmentLocalDocId, TermFreq};
+use leit_index::ExecutionWorkspace;
+use leit_postings::codec::{BlockDeltaCodec, Codec, CodecId, DeltaVarintCodec};
+use leit_postings::cursor::{CursorStatus, DocCursor, PostingsView, TfCursor};
 use leit_wind_tunnel::allocation::{AllocationCounterError, AllocationSnapshot, CountingAllocator};
 
 #[global_allocator]
@@ -301,4 +305,117 @@ fn panicking_worker_cannot_strand_the_owner_in_a_wait_loop() {
     assert!(!wait_for_worker(&WORKER_DONE, &worker));
     lease.finish();
     assert!(worker.join().is_err());
+}
+
+fn prepared_postings(count: u32) -> Vec<(SegmentLocalDocId, TermFreq)> {
+    (0..count)
+        .map(|index| {
+            (
+                SegmentLocalDocId::new(index * 3 + 1),
+                TermFreq::new(index % 7 + 1),
+            )
+        })
+        .collect()
+}
+
+fn traverse_prepared(workspace: &mut ExecutionWorkspace, view: PostingsView<'_>) -> (usize, u64) {
+    let mut cursor = workspace
+        .decode_prepared_postings(view)
+        .expect("prepared postings should decode");
+    let mut count = 0_usize;
+    let mut checksum = 0_u64;
+    while let Some(document) = cursor.current_doc() {
+        count += 1;
+        checksum += u64::from(document) + u64::from(cursor.current_tf());
+        if cursor.advance() == CursorStatus::Exhausted {
+            break;
+        }
+    }
+    (count, checksum)
+}
+
+#[test]
+fn decode_scratch_reuses_buffers_after_single_growth() {
+    let _serial = serial_test();
+    let fitting = prepared_postings(48);
+    let expected_fitting = fitting
+        .iter()
+        .map(|(document, frequency)| u64::from(document.get()) + u64::from(frequency.get()))
+        .sum::<u64>();
+    for (label, codec_id) in [
+        ("delta-varint", CodecId::DeltaVarint),
+        ("block-delta", CodecId::BlockDelta),
+    ] {
+        let fitting_bytes = match codec_id {
+            CodecId::DeltaVarint => DeltaVarintCodec.encode(&fitting),
+            CodecId::BlockDelta => BlockDeltaCodec.encode(&fitting),
+        };
+        let fitting_view = PostingsView::new(&fitting_bytes, &[]);
+        let mut workspace = ExecutionWorkspace::new();
+        assert_eq!(
+            traverse_prepared(&mut workspace, fitting_view),
+            (fitting.len(), expected_fitting)
+        );
+        let warmed_capacities = workspace.benchmark_decode_capacities();
+        let larger_count = warmed_capacities
+            .documents
+            .max(warmed_capacities.term_frequencies)
+            .checked_add(129)
+            .expect("deterministic fixture size should fit usize");
+        let larger = prepared_postings(
+            u32::try_from(larger_count).expect("deterministic fixture size should fit u32"),
+        );
+        let expected_larger = larger
+            .iter()
+            .map(|(document, frequency)| u64::from(document.get()) + u64::from(frequency.get()))
+            .sum::<u64>();
+        let larger_bytes = match codec_id {
+            CodecId::DeltaVarint => DeltaVarintCodec.encode(&larger),
+            CodecId::BlockDelta => BlockDeltaCodec.encode(&larger),
+        };
+        let larger_view = PostingsView::new(&larger_bytes, &[]);
+        assert!(warmed_capacities.documents < larger.len(), "{label}");
+        assert!(warmed_capacities.term_frequencies < larger.len(), "{label}");
+
+        let growth_lease = GLOBAL.try_start_counting().expect("growth lease");
+        let larger_observation = traverse_prepared(&mut workspace, larger_view);
+        let growth = growth_lease.finish();
+        let grown_capacities = workspace.benchmark_decode_capacities();
+
+        assert_eq!(
+            larger_observation,
+            (larger.len(), expected_larger),
+            "{label}"
+        );
+        assert_eq!(growth.alloc_calls, 0, "{label}: {growth:?}");
+        assert!(growth.realloc_calls > 0, "{label}: {growth:?}");
+        assert!(growth.realloc_calls <= 2, "{label}: {growth:?}");
+        assert_eq!(growth.dealloc_calls, 0, "{label}: {growth:?}");
+        assert!(grown_capacities.documents >= larger.len(), "{label}");
+        assert!(grown_capacities.term_frequencies >= larger.len(), "{label}");
+        assert!(
+            grown_capacities.documents > warmed_capacities.documents,
+            "{label}"
+        );
+        assert!(
+            grown_capacities.term_frequencies > warmed_capacities.term_frequencies,
+            "{label}"
+        );
+
+        let fitting_lease = GLOBAL.try_start_counting().expect("fitting lease");
+        let fitting_observation = traverse_prepared(&mut workspace, fitting_view);
+        let fitting_snapshot = fitting_lease.finish();
+        let fitting_capacities = workspace.benchmark_decode_capacities();
+
+        assert_eq!(
+            fitting_observation,
+            (fitting.len(), expected_fitting),
+            "{label}"
+        );
+        assert_eq!(fitting_snapshot, AllocationSnapshot::default(), "{label}");
+        assert_eq!(fitting_capacities, grown_capacities, "{label}");
+        println!(
+            "decode-scratch codec={label} growth={growth:?} capacities={grown_capacities:?} fitting={fitting_snapshot:?}"
+        );
+    }
 }

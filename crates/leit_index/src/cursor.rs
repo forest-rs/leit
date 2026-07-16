@@ -10,37 +10,6 @@
 use crate::memory::PostingEntry;
 use leit_postings::cursor::{CursorStatus, DocCursor, TfCursor};
 
-/// Selector for the cursor source to use during scoring.
-///
-/// Cursor source is selectable at scoring entry points (`eval_term`, `collect_term`).
-/// Non-regression: all public callers default to `InMemory`, preserving existing behavior.
-/// The e2e equivalence test exercises both `Compressed` variants on leaf term paths and
-/// conjunctions that thread the selected source through their children. OR and generic
-/// term expansion still fall back to `InMemory`.
-///
-/// # TODO: segment-backed execution
-/// The compressed source here encodes on the fly. The segment format stores codec-encoded `postings_data`,
-/// so a `PostingsView` can now be constructed over segment bytes — but wiring that into the cursor execution
-/// path (segment-backed query execution, bypassing the encode step) is integration work that pairs naturally
-/// with segment/mmap loading.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum CursorSource {
-    /// Use the zero-copy in-memory postings cursor (default, no regression).
-    #[default]
-    InMemory,
-    /// Encode postings with a selected codec and decode via `CompressedCursor`.
-    ///
-    /// Currently exercised only by the e2e equivalence test; the variant is dead in non-test builds.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "compressed source is exercised by the e2e equivalence test only"
-        )
-    )]
-    Compressed(leit_postings::codec::CodecId),
-}
-
 /// A zero-copy cursor over an in-memory postings slice.
 ///
 /// Wraps `&'a [PostingEntry]` and a current position. Traversal does not require

@@ -23,7 +23,7 @@ memmap2 = { optional = true, workspace = true }
 
 [features]
 default = ["std"]
-bench-internals = []
+bench-internals = ["leit_collect/bench-internals", "leit_postings/bench-internals"]
 std = [
     "leit_collect/std",
     "leit_core/std",

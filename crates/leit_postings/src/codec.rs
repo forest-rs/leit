@@ -343,6 +343,41 @@ fn decode_varint(bytes: &[u8]) -> Result<(u32, usize), CodecError> {
 #[derive(Clone, Copy, Debug)]
 pub struct DeltaVarintCodec;
 
+fn reserve_decode_buffers(
+    out_docs: &mut Vec<SegmentLocalDocId>,
+    out_tfs: &mut Vec<TermFreq>,
+    posting_count: usize,
+) {
+    if out_docs.capacity() < posting_count {
+        out_docs.reserve_exact(posting_count);
+    }
+    if out_tfs.capacity() < posting_count {
+        out_tfs.reserve_exact(posting_count);
+    }
+}
+
+fn validate_delta_varint(bytes: &[u8]) -> Result<usize, CodecError> {
+    let mut pos = 1;
+    let mut posting_count = 0_usize;
+    let mut prev_doc = 0_u32;
+    while pos < bytes.len() {
+        let (delta, delta_len) = decode_varint(&bytes[pos..])?;
+        pos += delta_len;
+        if pos >= bytes.len() {
+            return Err(CodecError::Truncated);
+        }
+        prev_doc = prev_doc
+            .checked_add(delta)
+            .ok_or(CodecError::InvalidVarint)?;
+        let (_, tf_len) = decode_varint(&bytes[pos..])?;
+        pos += tf_len;
+        posting_count = posting_count
+            .checked_add(1)
+            .ok_or(CodecError::InvalidVarint)?;
+    }
+    Ok(posting_count)
+}
+
 impl Codec for DeltaVarintCodec {
     fn id(&self) -> CodecId {
         CodecId::DeltaVarint
@@ -393,6 +428,9 @@ impl Codec for DeltaVarintCodec {
             if marker != CodecId::DeltaVarint.to_u8() {
                 return Err(CodecError::BadMarker(marker));
             }
+
+            let posting_count = validate_delta_varint(bytes)?;
+            reserve_decode_buffers(out_docs, out_tfs, posting_count);
 
             let mut pos = 1;
             let mut prev_doc = 0_u32;
@@ -449,6 +487,65 @@ impl Codec for DeltaVarintCodec {
 /// The `doc_bytes_len` allows readers to skip to the TF stream without decoding doc deltas.
 #[derive(Clone, Copy, Debug)]
 pub struct BlockDeltaCodec;
+
+fn validate_block_delta(bytes: &[u8]) -> Result<usize, CodecError> {
+    let mut pos = 1;
+    let mut posting_count = 0_usize;
+    while pos < bytes.len() {
+        let (doc_count, bytes_read) = decode_varint(&bytes[pos..])?;
+        pos += bytes_read;
+        let doc_count = doc_count as usize;
+        if doc_count == 0 || doc_count > BLOCK_DOC_COUNT {
+            return Err(CodecError::InvalidBlockCount);
+        }
+
+        let (first_doc, bytes_read) = decode_varint(&bytes[pos..])?;
+        pos += bytes_read;
+        let (last_doc, bytes_read) = decode_varint(&bytes[pos..])?;
+        pos += bytes_read;
+        let (doc_bytes_len, bytes_read) = decode_varint(&bytes[pos..])?;
+        pos += bytes_read;
+        let doc_stream_end = pos
+            .checked_add(doc_bytes_len as usize)
+            .filter(|end| *end <= bytes.len())
+            .ok_or(CodecError::Truncated)?;
+        let doc_stream = &bytes[pos..doc_stream_end];
+        let mut doc_pos = 0;
+        let mut prev_doc = 0_u32;
+        let mut first_decoded = None;
+        for _ in 0..doc_count {
+            if doc_pos >= doc_stream.len() {
+                return Err(CodecError::Truncated);
+            }
+            let (delta, bytes_read) = decode_varint(&doc_stream[doc_pos..])?;
+            doc_pos += bytes_read;
+            let doc_id = prev_doc
+                .checked_add(delta)
+                .ok_or(CodecError::InvalidVarint)?;
+            first_decoded.get_or_insert(doc_id);
+            prev_doc = doc_id;
+        }
+        if doc_pos != doc_stream.len() {
+            return Err(CodecError::InvalidVarint);
+        }
+        if first_decoded != Some(first_doc) || prev_doc != last_doc {
+            return Err(CodecError::BlockHeaderMismatch);
+        }
+
+        pos = doc_stream_end;
+        for _ in 0..doc_count {
+            if pos >= bytes.len() {
+                return Err(CodecError::Truncated);
+            }
+            let (_, bytes_read) = decode_varint(&bytes[pos..])?;
+            pos += bytes_read;
+        }
+        posting_count = posting_count
+            .checked_add(doc_count)
+            .ok_or(CodecError::InvalidBlockCount)?;
+    }
+    Ok(posting_count)
+}
 
 impl Codec for BlockDeltaCodec {
     fn id(&self) -> CodecId {
@@ -539,6 +636,9 @@ impl Codec for BlockDeltaCodec {
             if marker != CodecId::BlockDelta.to_u8() {
                 return Err(CodecError::BadMarker(marker));
             }
+
+            let posting_count = validate_block_delta(bytes)?;
+            reserve_decode_buffers(out_docs, out_tfs, posting_count);
 
             let mut pos = 1;
 
@@ -1447,6 +1547,41 @@ mod tests {
     }
 
     #[test]
+    fn delta_rejection_preserves_first_error_and_buffer_capacities() {
+        let codec = DeltaVarintCodec;
+        let malformed = vec![
+            CodecId::DeltaVarint.to_u8(),
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0x0f,
+            1,
+            1,
+            1,
+            0x80,
+        ];
+        let mut docs = Vec::with_capacity(3);
+        let mut tfs = Vec::with_capacity(5);
+        let capacities = (docs.capacity(), tfs.capacity());
+
+        assert_eq!(
+            codec.decode(&malformed, &mut docs, &mut tfs),
+            Err(CodecError::InvalidVarint)
+        );
+        assert!(docs.is_empty());
+        assert!(tfs.is_empty());
+        assert_eq!((docs.capacity(), tfs.capacity()), capacities);
+
+        let valid = codec.encode(&[(SegmentLocalDocId::new(7), TermFreq::new(2))]);
+        codec
+            .decode(&valid, &mut docs, &mut tfs)
+            .expect("valid input should decode after rejection");
+        assert_eq!(docs, [SegmentLocalDocId::new(7)]);
+        assert_eq!(tfs, [TermFreq::new(2)]);
+    }
+
+    #[test]
     fn test_block_delta_doc_bytes_len_bounds_check() {
         // Create a block header claiming more doc bytes than available.
         let codec = BlockDeltaCodec;
@@ -1511,6 +1646,32 @@ mod tests {
         );
         assert!(docs.is_empty());
         assert!(tfs.is_empty());
+    }
+
+    #[test]
+    fn block_rejection_preserves_first_error_and_buffer_capacities() {
+        let codec = BlockDeltaCodec;
+        let mut malformed = codec.encode(&[(SegmentLocalDocId::new(7), TermFreq::new(2))]);
+        malformed[2] = 8;
+        malformed.push(0x80);
+        let mut docs = Vec::with_capacity(3);
+        let mut tfs = Vec::with_capacity(5);
+        let capacities = (docs.capacity(), tfs.capacity());
+
+        assert_eq!(
+            codec.decode(&malformed, &mut docs, &mut tfs),
+            Err(CodecError::BlockHeaderMismatch)
+        );
+        assert!(docs.is_empty());
+        assert!(tfs.is_empty());
+        assert_eq!((docs.capacity(), tfs.capacity()), capacities);
+
+        let valid = codec.encode(&[(SegmentLocalDocId::new(11), TermFreq::new(3))]);
+        codec
+            .decode(&valid, &mut docs, &mut tfs)
+            .expect("valid input should decode after rejection");
+        assert_eq!(docs, [SegmentLocalDocId::new(11)]);
+        assert_eq!(tfs, [TermFreq::new(3)]);
     }
 
     #[test]
