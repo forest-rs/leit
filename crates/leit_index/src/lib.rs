@@ -43,6 +43,7 @@ pub use index_surface::{
 };
 pub use leit_core::{FilterEvaluator, FilterSlotId, NoFilter};
 pub use leit_postings::codec::CodecId;
+pub use leit_query::{BooleanOp, QueryBuilder, UserQueryNode, UserQueryProgram};
 #[cfg(feature = "bench-internals")]
 #[doc(hidden)]
 pub use memory::BenchmarkScratchCapacities;

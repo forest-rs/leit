@@ -12,7 +12,7 @@ use leit_postings::codec::CodecError;
 use leit_postings::cursor::{
     CompressedCursor, CursorFactory, DecodeScratch, DefaultCursorFactory, PostingsView,
 };
-use leit_query::{ExecutionPlan, Planner, PlannerScratch, PlanningContext};
+use leit_query::{ExecutionPlan, Planner, PlannerScratch, PlanningContext, UserQueryProgram};
 use leit_score::{Bm25FScorer, Bm25Scorer, FieldStats, ScoringStats};
 
 use crate::error::IndexError;
@@ -282,6 +282,38 @@ impl ExecutionWorkspace {
         Ok(plan)
     }
 
+    /// Plan a typed [`UserQueryProgram`] for this index using reusable
+    /// scratch state.
+    ///
+    /// The typed counterpart of [`plan`](Self::plan): identical default-field
+    /// setup and the same [`ExternalFilter`](leit_query::QueryNode::ExternalFilter)
+    /// slot wrapping, but the query arrives as an AST instead of text, so no
+    /// string parsing (and no parse failure mode) is involved.
+    pub fn plan_program<I, F>(
+        &mut self,
+        index: &I,
+        program: &UserQueryProgram,
+        filter: &F,
+    ) -> Result<ExecutionPlan, IndexError>
+    where
+        I: PlanningIndex,
+        F: FilterEvaluator<u32>,
+    {
+        self.clear();
+        let planner = Planner::new();
+        self.default_fields.clear();
+        index.for_each_default_field(&mut |field| self.default_fields.push(field));
+        let context =
+            PlanningContext::new(index, index).with_default_fields(self.default_fields.clone());
+        let mut plan = planner
+            .plan_program(program, &context, &mut self.planner)
+            .map_err(IndexError::Query)?;
+        for slot in filter.slots() {
+            plan.wrap_external_filter(*slot);
+        }
+        Ok(plan)
+    }
+
     /// Plan a textual query with BM25F field-weight overrides.
     ///
     /// Fields absent from `field_weights` default to weight `1.0`. Invalid
@@ -367,6 +399,27 @@ impl ExecutionWorkspace {
         filter: &F,
     ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
         let plan = self.plan(index, query, filter)?;
+        let mut collector = TopKCollector::new(limit);
+        self.execute(index, &plan, Some(scorer), filter, &mut collector)?;
+        Ok(collector.finish())
+    }
+
+    /// Plan and execute a typed [`UserQueryProgram`] with an explicit scorer
+    /// and filter.
+    ///
+    /// The typed counterpart of [`search`](Self::search): the filter's
+    /// [`slots()`](FilterEvaluator::slots) wrap the plan with
+    /// [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes. Pass
+    /// [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    pub fn search_program<F: FilterEvaluator<u32>>(
+        &mut self,
+        index: &InMemoryIndex,
+        program: &UserQueryProgram,
+        limit: usize,
+        scorer: SearchScorer,
+        filter: &F,
+    ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
+        let plan = self.plan_program(index, program, filter)?;
         let mut collector = TopKCollector::new(limit);
         self.execute(index, &plan, Some(scorer), filter, &mut collector)?;
         Ok(collector.finish())
