@@ -172,7 +172,6 @@ mod tests {
     use crate::segment_format::writer::write_segment;
     use alloc::boxed::Box;
     use alloc::collections::{BTreeMap, BTreeSet};
-    use alloc::format;
     use alloc::string::String;
     use alloc::vec;
     use alloc::vec::Vec;
@@ -186,39 +185,42 @@ mod tests {
         unsafe { MmapSegment::open(path) }
     }
 
-    /// Helper: build a unique temp file path for a test. A process-wide counter plus the process id
-    /// guarantee uniqueness even when several tests run concurrently and request a path within the
-    /// same nanosecond — without it, parallel tests collide on the path and read each other's files.
-    fn unique_temp_path(prefix: &str) -> std::path::PathBuf {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        use std::time::{SystemTime, UNIX_EPOCH};
+    /// A segment file inside its own temporary directory.
+    ///
+    /// The directory is created exclusively by the operating system, so tests
+    /// running in parallel inside one process cannot land on the same path,
+    /// and it is removed on drop — including when a test panics, which the
+    /// end-of-body cleanup this replaced could not do.
+    struct TempSegment(tempfile::TempDir);
 
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
+    impl TempSegment {
+        fn empty() -> Self {
+            Self(tempfile::TempDir::new().expect("temporary segment directory"))
+        }
 
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let pid = std::process::id();
-        let mut path = std::env::temp_dir();
-        path.push(format!("{prefix}_{pid}_{timestamp}_{unique}.seg"));
-        path
+        fn with_bytes(bytes: &[u8]) -> Self {
+            let segment = Self::empty();
+            segment.write(bytes);
+            segment
+        }
+
+        /// The segment path. The name is fixed because the directory is unique.
+        fn path(&self) -> std::path::PathBuf {
+            self.0.path().join("segment.seg")
+        }
+
+        fn write(&self, bytes: &[u8]) {
+            let mut file = std::fs::File::create(self.path()).expect("create segment file");
+            file.write_all(bytes).expect("write segment bytes");
+            file.sync_all().expect("sync segment file");
+        }
     }
 
-    /// Helper: write a test segment to a temp file and return the path.
+    /// Helper: write a test segment to a temp file.
     fn write_test_segment_to_file(
         index: &InMemoryIndex,
-    ) -> Result<String, Box<dyn core::error::Error>> {
-        let bytes = write_segment(index)?;
-        let temp_file = unique_temp_path("leit_mmap_test");
-
-        let mut file = std::fs::File::create(&temp_file)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        drop(file);
-
-        Ok(temp_file.to_string_lossy().into_owned())
+    ) -> Result<TempSegment, Box<dyn core::error::Error>> {
+        Ok(TempSegment::with_bytes(&write_segment(index)?))
     }
 
     /// Helper: build a minimal test index with fields and postings.
@@ -324,63 +326,44 @@ mod tests {
     #[test]
     fn mmap_open_validates_header() {
         let index = build_test_index();
-        let temp_path = write_test_segment_to_file(&index).expect("write segment to temp file");
+        let segment = write_test_segment_to_file(&index).expect("write segment to temp file");
+        let temp_path = segment.path();
 
         // Open the file via mmap; should succeed if header is valid.
         let result = open_test_segment(&temp_path);
         assert!(result.is_ok(), "mmap_open should succeed for valid segment");
-
-        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]
     fn mmap_open_rejects_short_file() {
-        let temp_path = unique_temp_path("leit_mmap_short");
-
         // Write a file shorter than the header size (80 bytes).
-        let mut file = std::fs::File::create(&temp_path).expect("create temp file");
-        file.write_all(&[0_u8; 50]).expect("write short data");
-        file.sync_all().expect("sync file");
-        drop(file);
+        let segment = TempSegment::with_bytes(&[0_u8; 50]);
+        let temp_path = segment.path();
 
         let result = open_test_segment(&temp_path);
         assert!(result.is_err(), "mmap_open should reject truncated file");
-
-        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]
     fn mmap_open_rejects_bad_magic() {
-        let temp_path = unique_temp_path("leit_mmap_badmagic");
-
         // Write a file with bad magic bytes.
         let mut buf = vec![0_u8; 100];
         buf[0..4].copy_from_slice(&0xDEADBEEF_u32.to_le_bytes());
         buf[4..8].copy_from_slice(&1_u32.to_le_bytes()); // version
 
-        let mut file = std::fs::File::create(&temp_path).expect("create temp file");
-        file.write_all(&buf).expect("write bad magic");
-        file.sync_all().expect("sync file");
-        drop(file);
+        let segment = TempSegment::with_bytes(&buf);
+        let temp_path = segment.path();
 
         let result = open_test_segment(&temp_path);
         assert!(result.is_err(), "mmap_open should reject bad magic");
-
-        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]
     fn mmap_vs_buffer_equivalence() {
         let index = build_test_index();
         let segment_bytes = write_segment(&index).expect("write_segment should succeed");
-        let temp_path = {
-            let path = unique_temp_path("leit_mmap_equiv");
-            let mut file = std::fs::File::create(&path).expect("create temp file");
-            file.write_all(&segment_bytes).expect("write segment");
-            file.sync_all().expect("sync file");
-            drop(file);
-            path
-        };
+        let segment = TempSegment::with_bytes(&segment_bytes);
+        let temp_path = segment.path();
 
         // Open via mmap.
         let mmap_segment = open_test_segment(&temp_path).expect("mmap open");
@@ -502,22 +485,14 @@ mod tests {
                 i, mmap_entry, buffer_entry
             );
         }
-
-        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]
     fn mmap_corrupt_body_detected_on_view() {
         let index = build_test_index();
         let segment_bytes = write_segment(&index).expect("write_segment should succeed");
-        let temp_path = {
-            let path = unique_temp_path("leit_mmap_corrupt");
-            let mut file = std::fs::File::create(&path).expect("create temp file");
-            file.write_all(&segment_bytes).expect("write segment");
-            file.sync_all().expect("sync file");
-            drop(file);
-            path
-        };
+        let segment = TempSegment::with_bytes(&segment_bytes);
+        let temp_path = segment.path();
 
         // Corrupt a byte in the body (after header, in the field table section).
         // The header is 80 bytes; corrupt at offset 100.
@@ -560,32 +535,18 @@ mod tests {
                 // This is the expected outcome for a corrupted segment body.
             }
         }
-
-        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]
     fn mmap_truncated_body_detected_on_view() {
         let index = build_test_index();
         let segment_bytes = write_segment(&index).expect("write_segment should succeed");
-        let temp_path = {
-            let path = unique_temp_path("leit_mmap_truncated");
-            let mut file = std::fs::File::create(&path).expect("create temp file");
-            file.write_all(&segment_bytes).expect("write segment");
-            file.sync_all().expect("sync file");
-            drop(file);
-            path
-        };
+        let segment = TempSegment::with_bytes(&segment_bytes);
+        let temp_path = segment.path();
 
         // Create a file with truncated body but valid header.
         // Write only the header (80 bytes), omitting the body sections.
-        {
-            let mut file = std::fs::File::create(&temp_path).expect("create truncated file");
-            file.write_all(&segment_bytes[..80])
-                .expect("write header only");
-            file.sync_all().expect("sync file");
-            drop(file);
-        }
+        segment.write(&segment_bytes[..80]);
 
         // Attempt to open via mmap: header-only validation should succeed (we only wrote header).
         let mmap_segment =
@@ -598,14 +559,12 @@ mod tests {
             view_result.is_err(),
             "view with truncated body should fail structural validation"
         );
-
-        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]
     fn mmap_full_validation_detects_checksum_corruption() {
-        let temp_path =
-            write_test_segment_to_file(&build_test_index()).expect("write test segment");
+        let segment = write_test_segment_to_file(&build_test_index()).expect("write test segment");
+        let temp_path = segment.path();
 
         let mut bytes = std::fs::read(&temp_path).expect("read temp segment");
         let corruption_offset = 150;
@@ -629,14 +588,13 @@ mod tests {
             matches!(full, Err(SegmentError::BadChecksum { .. })),
             "full mmap validation should detect checksum corruption"
         );
-
-        let _ = std::fs::remove_file(&temp_path);
     }
 
     #[test]
     fn mmap_open_and_query() {
         let index = build_test_index();
-        let temp_path = write_test_segment_to_file(&index).expect("write segment to temp file");
+        let segment = write_test_segment_to_file(&index).expect("write segment to temp file");
+        let temp_path = segment.path();
 
         let mmap_segment = open_test_segment(&temp_path).expect("mmap open");
         let view = mmap_segment.as_view().expect("as_view");
@@ -653,7 +611,5 @@ mod tests {
         );
         assert!(view.postings_data().is_ok(), "postings_data should succeed");
         assert!(view.block_meta().is_ok(), "block_meta should succeed");
-
-        let _ = std::fs::remove_file(&temp_path);
     }
 }

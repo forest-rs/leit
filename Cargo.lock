@@ -597,6 +597,7 @@ dependencies = [
  "leit_text",
  "memmap2",
  "proptest",
+ "tempfile",
 ]
 
 [[package]]
