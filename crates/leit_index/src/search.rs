@@ -288,7 +288,13 @@ impl ExecutionWorkspace {
     /// The typed counterpart of [`plan`](Self::plan): identical default-field
     /// setup and the same [`ExternalFilter`](leit_query::QueryNode::ExternalFilter)
     /// slot wrapping, but the query arrives as an AST instead of text, so no
-    /// string parsing (and no parse failure mode) is involved.
+    /// string parsing is involved. Invalid programs or missing default fields
+    /// can still produce planning errors. Terms bypass query syntax parsing;
+    /// lookup follows the index dictionary implementation. [`InMemoryIndex`]
+    /// applies its field analyzer and requires exactly one resulting token.
+    /// Phrases approximate AND of
+    /// their terms without enforcing order, slop, or a common field; see
+    /// [`Planner::plan_program`].
     pub fn plan_program<I, F>(
         &mut self,
         index: &I,
@@ -411,6 +417,12 @@ impl ExecutionWorkspace {
     /// [`slots()`](FilterEvaluator::slots) wrap the plan with
     /// [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes. Pass
     /// [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    ///
+    /// Terms bypass query syntax parsing. The index applies its field analyzer
+    /// and resolves a term only when analysis produces exactly one token.
+    /// Phrases approximate AND of their terms, without positional or same-field
+    /// guarantees; see
+    /// [`Planner::plan_program`].
     pub fn search_program<F: FilterEvaluator<u32>>(
         &mut self,
         index: &InMemoryIndex,
@@ -454,5 +466,114 @@ impl ScratchSpace for ExecutionWorkspace {
         self.planner.reset();
         self.default_fields.clear();
         self.last_stats = ExecutionStats::default();
+    }
+}
+
+#[cfg(test)]
+mod typed_boundary_tests {
+    use super::*;
+    use crate::InMemoryIndexBuilder;
+    use alloc::vec;
+    use leit_core::{FilterSlotId, NoFilter};
+    use leit_query::QueryBuilder;
+    use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
+
+    fn index() -> InMemoryIndex {
+        let field = FieldId::new(1);
+        let mut analyzers = FieldAnalyzers::new();
+        analyzers.set(field, Analyzer::new(WhitespaceTokenizer::new()));
+        let mut builder = InMemoryIndexBuilder::new(analyzers);
+        builder.register_field_alias(field, "body");
+        builder
+            .index_document(1, &[(field, "x:y (rust) OR")])
+            .unwrap();
+        builder.index_document(2, &[(field, "x:y")]).unwrap();
+        builder.build_index()
+    }
+
+    struct OnlySecond;
+
+    impl FilterEvaluator<u32> for OnlySecond {
+        fn slots(&self) -> &[FilterSlotId] {
+            const SLOTS: [FilterSlotId; 2] = [FilterSlotId::new(0), FilterSlotId::new(1)];
+            &SLOTS
+        }
+
+        fn evaluate(&self, slot: FilterSlotId, id: &u32) -> bool {
+            slot == FilterSlotId::new(0) || *id == 2
+        }
+    }
+
+    #[test]
+    fn typed_operator_like_terms_are_literal() {
+        let index = index();
+        let mut workspace = ExecutionWorkspace::new();
+        for (text, count) in [("x:y", 2), ("(rust)", 1), ("OR", 1)] {
+            let program = leit_query::term(text);
+            let hits = workspace
+                .search_program(&index, &program, 10, SearchScorer::bm25(), &NoFilter)
+                .unwrap();
+            assert_eq!(hits.len(), count, "literal term {text}");
+        }
+    }
+
+    #[test]
+    fn typed_terms_use_field_analysis() {
+        let field = FieldId::new(1);
+        let mut analyzers = FieldAnalyzers::new();
+        analyzers.set(
+            field,
+            Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
+        );
+        let mut builder = InMemoryIndexBuilder::new(analyzers);
+        builder.register_field_alias(field, "body");
+        builder.index_document(1, &[(field, "café rust")]).unwrap();
+        let index = builder.build_index();
+        let mut workspace = ExecutionWorkspace::new();
+        for fielded in [false, true] {
+            for (text, count) in [("CAFE\u{301}", 1), ("RUST", 1), ("café rust", 0), ("", 0)] {
+                let program = if fielded {
+                    leit_query::term_with_field(text, "body")
+                } else {
+                    leit_query::term(text)
+                };
+                let hits = workspace
+                    .search_program(&index, &program, 10, SearchScorer::bm25(), &NoFilter)
+                    .unwrap();
+                assert_eq!(hits.len(), count, "term {text:?}, fielded={fielded}");
+                if count == 1 {
+                    assert_eq!(hits[0].id, 1);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn typed_filters_reject_hits_and_workspace_recovers_after_error() {
+        let index = index();
+        let mut workspace = ExecutionWorkspace::new();
+        let invalid = leit_query::term_with_field("x:y", "missing");
+        assert!(workspace.plan_program(&index, &invalid, &NoFilter).is_err());
+
+        for boolean in [false, true] {
+            let mut builder = QueryBuilder::new();
+            let term = builder.term("x:y");
+            if boolean {
+                let other = builder.term("OR");
+                builder.or(vec![term, other]);
+            }
+            let program = builder.build().unwrap();
+            for scorer in [SearchScorer::bm25(), SearchScorer::bm25f()] {
+                let hits = workspace
+                    .search_program(&index, &program, 10, scorer, &OnlySecond)
+                    .unwrap();
+                assert_eq!(hits.len(), 1);
+                assert_eq!(hits[0].id, 2);
+                let hits = workspace
+                    .search_program(&index, &program, 10, scorer, &NoFilter)
+                    .unwrap();
+                assert_eq!(hits.len(), 2, "filter state must not leak between queries");
+            }
+        }
     }
 }

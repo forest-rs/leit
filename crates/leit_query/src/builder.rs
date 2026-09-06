@@ -71,8 +71,9 @@ impl QueryBuilder {
 
     /// Add a phrase query with initial terms.
     ///
-    /// Note: phrase execution is not yet implemented in the Phase 1 planner.
-    /// This node type is available for query representation and inspection.
+    /// The Phase 1 typed planner approximates this as AND of its terms.
+    /// It does not enforce order or slop, and different default fields can
+    /// satisfy different terms. See [`crate::Planner::plan_program`].
     pub fn phrase(&mut self, terms: Vec<Arc<str>>) -> QueryNodeId {
         let id = self.arena.push(UserQueryNode::Phrase { terms, slop: 0 });
         self.root = Some(id);
@@ -81,8 +82,9 @@ impl QueryBuilder {
 
     /// Add a phrase query with terms and slop.
     ///
-    /// Note: phrase execution is not yet implemented in the Phase 1 planner.
-    /// This node type is available for query representation and inspection.
+    /// The Phase 1 typed planner approximates this as AND of its terms.
+    /// It does not enforce order or slop, and different default fields can
+    /// satisfy different terms. See [`crate::Planner::plan_program`].
     pub fn phrase_with_slop(&mut self, terms: Vec<Arc<str>>, slop: u32) -> QueryNodeId {
         let id = self.arena.push(UserQueryNode::Phrase { terms, slop });
         self.root = Some(id);

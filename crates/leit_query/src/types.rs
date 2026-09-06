@@ -790,9 +790,9 @@ pub enum QueryError {
         field: leit_core::FieldId,
     },
     /// A typed boost factor (or the composed product of nested boost
-    /// factors) was not finite and non-negative.
+    /// factors, including the context default boost) was not finite and non-negative.
     InvalidBoost {
-        /// The offending [`UserQueryNode::Boost`] node.
+        /// The offending boost node, or the term/phrase whose effective boost was invalid.
         node: QueryNodeId,
     },
 }

@@ -111,7 +111,11 @@ impl Planner {
     /// the textual path composes `boost * default_boost`) and add no plan
     /// node. [`UserQueryNode::Phrase`] lowers to the conjunction of its terms;
     /// Phase 1 execution has no positional data, so phrase slop is not
-    /// enforced yet.
+    /// enforced yet. Effective term boosts, including the context's default
+    /// boost, must be finite and non-negative or planning returns
+    /// [`QueryError::InvalidBoost`]. Term text bypasses query syntax parsing
+    /// and is passed unchanged to the context dictionary. Any analysis or
+    /// normalization is defined by that dictionary implementation.
     ///
     /// Known Phase 1 phrase weakness: each phrase term expands independently
     /// over the default fields before the AND, so a phrase like `"A B"` can
@@ -562,6 +566,17 @@ fn lower_user_node(
         boost = composed;
         id = *child;
     };
+    // The shared term helper also applies the context boost. Validate that
+    // final product before it can enter scoring (including for phrases).
+    if matches!(
+        user,
+        UserQueryNode::Term { .. } | UserQueryNode::Phrase { .. }
+    ) {
+        let effective_boost = boost * context.default_boost;
+        if !effective_boost.is_finite() || effective_boost < 0.0 {
+            return Err(QueryError::InvalidBoost { node: id });
+        }
+    }
     let node = match user {
         UserQueryNode::Term { term, field } => {
             lower_term_node(field.as_deref(), term, boost, context, nodes, max_nodes)?
@@ -630,4 +645,94 @@ fn lower_user_node(
     let id = query_node_id(nodes.len());
     nodes.push(node);
     Ok(id)
+}
+
+#[cfg(test)]
+mod typed_boundary_tests {
+    use super::*;
+    use crate::{FieldRegistry, QueryBuilder, TermDictionary};
+    use leit_core::{FieldId, TermId};
+
+    struct Vocabulary;
+
+    impl FieldRegistry for Vocabulary {
+        fn resolve_field(&self, field: &str) -> Option<FieldId> {
+            (field == "body").then_some(FieldId::new(1))
+        }
+    }
+
+    impl TermDictionary for Vocabulary {
+        fn resolve_term(&self, _field: FieldId, term: &str) -> Option<TermId> {
+            (term == "rust").then_some(TermId::new(1))
+        }
+    }
+
+    #[test]
+    fn typed_effective_boost_rejects_invalid_context_products() {
+        for default_boost in [f32::NAN, f32::INFINITY, -1.0, f32::MAX] {
+            for fielded in [false, true] {
+                let mut builder = QueryBuilder::new();
+                let term = if fielded {
+                    builder.term_with_field("rust", "body")
+                } else {
+                    builder.term("rust")
+                };
+                builder.boost(term, 2.0);
+                let program = builder.build().unwrap();
+                let context = PlanningContext::new(&Vocabulary, &Vocabulary)
+                    .with_default_fields(alloc::vec![FieldId::new(1), FieldId::new(2)])
+                    .with_default_boost(default_boost);
+                let result =
+                    Planner::new().plan_program(&program, &context, &mut PlannerScratch::new());
+                assert!(
+                    matches!(result, Err(QueryError::InvalidBoost { .. })),
+                    "invalid effective boost must reject: {default_boost}, {result:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn typed_effective_boost_accepts_zero_and_finite_products() {
+        for default_boost in [0.0, 3.0] {
+            let mut builder = QueryBuilder::new();
+            let term = builder.term("rust");
+            builder.boost(term, 2.0);
+            let context = PlanningContext::new(&Vocabulary, &Vocabulary)
+                .with_default_field(FieldId::new(1))
+                .with_default_boost(default_boost);
+            let plan = Planner::new()
+                .plan_program(
+                    &builder.build().unwrap(),
+                    &context,
+                    &mut PlannerScratch::new(),
+                )
+                .unwrap();
+            let Some(QueryNode::Term { boost, .. }) = plan.program.get(plan.program.root()) else {
+                panic!("expected a term");
+            };
+            assert_eq!(*boost, default_boost * 2.0);
+        }
+    }
+
+    #[test]
+    fn typed_cycles_reject_before_lowering() {
+        for boost_cycle in [false, true] {
+            let mut builder = QueryBuilder::new();
+            if boost_cycle {
+                builder.boost(QueryNodeId::new(0), 1.0);
+            } else {
+                builder.not(QueryNodeId::new(0));
+            }
+            let program = builder.build().unwrap();
+            let context =
+                PlanningContext::new(&Vocabulary, &Vocabulary).with_default_field(FieldId::new(1));
+            assert_eq!(
+                Planner::new().plan_program(&program, &context, &mut PlannerScratch::new()),
+                Err(QueryError::InvalidProgramCycle {
+                    node: QueryNodeId::new(0)
+                })
+            );
+        }
+    }
 }
