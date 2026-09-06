@@ -18,9 +18,9 @@
 //! - Bit 0: `optional_sections_present` = 0 (`stored_fields`, `columnar` are absent/zero-length)
 //! - Bits 1-31: reserved for future use
 //!
-//! **Codec ID Marker:**
-//! The postings table reserves space for codec selection per-term. For the current v1 format,
-//! codec selection is not stored; all postings use uncompressed format.
+//! **Postings Encoding Kind:**
+//! The postings-table discriminator is `0` for legacy raw tuples, `1` for a `DeltaVarint` payload
+//! carrying codec marker `0`, and `2` for a `BlockDelta` payload carrying codec marker `1`.
 //!
 //! **Block Metadata:**
 //! Postings are divided into fixed-size blocks (128 documents per block per `BLOCK_DOC_COUNT`).
@@ -31,21 +31,20 @@ use alloc::vec::Vec;
 use core::cmp;
 
 use bytemuck;
-use leit_postings::codec::BLOCK_DOC_COUNT;
+use leit_core::{SegmentLocalDocId, TermFreq};
+use leit_postings::codec::{BLOCK_DOC_COUNT, BlockDeltaCodec, Codec, CodecId, DeltaVarintCodec};
 
 use crate::error::IndexError;
 use crate::memory::InMemoryIndex;
 use crate::segment_format::block_meta::BlockMetadataEntry;
 use crate::segment_format::footer::{Footer, compute_checksum};
 use crate::segment_format::header::{FORMAT_VERSION, HEADER_SIZE, MAGIC, SegmentHeader};
+use crate::segment_format::postings_encoding::PostingsEncoding;
+use crate::serialization::{SegmentWriteError, SerializationPlan};
 
 /// Format flags: indicate which optional sections are present.
 /// In v1, `block_meta` is always populated, and `stored_fields`/`columnar` are zero-length, so this is always 0.
 const FORMAT_FLAGS_V1_CORE: u32 = 0;
-
-/// Reserved codec ID for uncompressed postings.
-/// Not used in current v1; reserved for future releases when postings codecs are implemented.
-const RESERVED_CODEC_ID_UNCOMPRESSED: u32 = 0;
 
 /// Serialize an `InMemoryIndex` to the v1 segment format.
 ///
@@ -137,6 +136,76 @@ pub(crate) fn write_segment(index: &InMemoryIndex) -> Result<Vec<u8>, IndexError
     segment.extend_from_slice(&footer.encode());
 
     Ok(segment)
+}
+
+/// Serialize an index with a compressed postings codec after caller-owned size preflight.
+pub(crate) fn write_compressed_segment(
+    index: &InMemoryIndex,
+    codec_id: CodecId,
+    plan: &SerializationPlan,
+) -> Result<Vec<u8>, SegmentWriteError> {
+    if plan.term_lengths.len() != index.term_entries().len() {
+        return Err(SegmentWriteError::SerializationPlanMismatch {
+            planned_terms: plan.term_lengths.len(),
+            actual_terms: index.term_entries().len(),
+        });
+    }
+    let field_table = encode_field_table(index)?;
+    let lexicon = encode_lexicon(index)?;
+    let (postings_table, postings_data, block_meta) =
+        encode_compressed_postings(index, codec_id, plan)?;
+
+    let mut offset = HEADER_SIZE as u64;
+    let field_table_offset = offset;
+    offset = checked_section_end(offset, field_table.len())?;
+    let lexicon_offset = offset;
+    offset = checked_section_end(offset, lexicon.len())?;
+    let postings_table_offset = offset;
+    offset = checked_section_end(offset, postings_table.len())?;
+    let postings_data_offset = offset;
+    offset = checked_section_end(offset, postings_data.len())?;
+    let block_meta_offset = offset;
+    offset = checked_section_end(offset, block_meta.len())?;
+    let stored_fields_offset = offset;
+    let columnar_offset = offset;
+    let footer_offset = offset;
+    let total_len = footer_offset
+        .checked_add(4)
+        .ok_or(SegmentWriteError::LengthOverflow)?;
+    let capacity = usize::try_from(total_len).map_err(|_| SegmentWriteError::LengthOverflow)?;
+
+    let mut segment = Vec::with_capacity(capacity);
+    let header = SegmentHeader {
+        magic: MAGIC,
+        version: FORMAT_VERSION,
+        format_flags: FORMAT_FLAGS_V1_CORE,
+        document_count: index.document_count(),
+        field_table_offset,
+        lexicon_offset,
+        postings_table_offset,
+        postings_data_offset,
+        block_meta_offset,
+        stored_fields_offset,
+        columnar_offset,
+        footer_offset,
+    };
+    segment.extend_from_slice(&header.encode());
+    segment.extend_from_slice(&field_table);
+    segment.extend_from_slice(&lexicon);
+    segment.extend_from_slice(&postings_table);
+    segment.extend_from_slice(&postings_data);
+    segment.extend_from_slice(&block_meta);
+
+    let checksum = compute_checksum(&segment);
+    segment.extend_from_slice(&Footer { checksum }.encode());
+    Ok(segment)
+}
+
+fn checked_section_end(offset: u64, section_len: usize) -> Result<u64, SegmentWriteError> {
+    let section_len = u64::try_from(section_len).map_err(|_| SegmentWriteError::LengthOverflow)?;
+    offset
+        .checked_add(section_len)
+        .ok_or(SegmentWriteError::LengthOverflow)
 }
 
 /// Encode the field table section.
@@ -327,7 +396,127 @@ fn encode_postings(index: &InMemoryIndex) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>),
         push_u64(&mut table, data_offset);
         push_u32(&mut table, data_len);
         push_u32(&mut table, doc_freq);
-        push_u32(&mut table, RESERVED_CODEC_ID_UNCOMPRESSED);
+        push_u32(&mut table, PostingsEncoding::LegacyRawV1.kind());
+        push_u32(&mut table, first_block_index);
+        push_u32(&mut table, block_count);
+    }
+
+    Ok((table, data, block_meta))
+}
+
+#[expect(
+    clippy::type_complexity,
+    reason = "three encoded segment sections are kept separate until header offsets are known"
+)]
+fn encode_compressed_postings(
+    index: &InMemoryIndex,
+    codec_id: CodecId,
+    plan: &SerializationPlan,
+) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), SegmentWriteError> {
+    let mut table = Vec::new();
+    let mut data = Vec::new();
+    let mut block_meta = Vec::new();
+    let entries = index.term_entries();
+    let postings_map = index.postings();
+    let count = u32::try_from(entries.len()).map_err(|_| SegmentWriteError::LengthOverflow)?;
+    push_u32(&mut table, count);
+    let mut cumulative_block_count = 0_u32;
+
+    for (term_index, entry) in entries.iter().enumerate() {
+        let postings = postings_map
+            .get(&entry.term_id)
+            .ok_or(SegmentWriteError::Index(IndexError::ValueOutOfRange))?;
+        let data_offset =
+            u64::try_from(data.len()).map_err(|_| SegmentWriteError::LengthOverflow)?;
+        let planned = plan.term_lengths.get(term_index).ok_or(
+            SegmentWriteError::SerializationPlanMismatch {
+                planned_terms: plan.term_lengths.len(),
+                actual_terms: entries.len(),
+            },
+        )?;
+        let expected_body_len = planned.body_len;
+        let payload_len = planned.payload_len;
+
+        let codec_input: Vec<_> = postings
+            .iter()
+            .map(|posting| {
+                (
+                    SegmentLocalDocId::new(posting.doc_id),
+                    TermFreq::new(posting.term_freq),
+                )
+            })
+            .collect();
+        let encoded = match codec_id {
+            CodecId::DeltaVarint => DeltaVarintCodec.encode(&codec_input),
+            CodecId::BlockDelta => BlockDeltaCodec.encode(&codec_input),
+        };
+        let actual_body_len = u64::try_from(encoded.len().saturating_sub(1))
+            .map_err(|_| SegmentWriteError::LengthOverflow)?;
+        let actual_payload_len = actual_body_len
+            .checked_add(1)
+            .ok_or(SegmentWriteError::LengthOverflow)?;
+        if actual_body_len != expected_body_len || actual_payload_len != u64::from(payload_len) {
+            return Err(SegmentWriteError::EncodedLengthMismatch {
+                expected_body_len,
+                actual_body_len,
+            });
+        }
+        data.extend_from_slice(&encoded);
+
+        let first_block_index = cumulative_block_count;
+        let doc_freq =
+            u32::try_from(postings.len()).map_err(|_| SegmentWriteError::LengthOverflow)?;
+        let actual_blocks = match codec_id {
+            CodecId::DeltaVarint => usize::from(!postings.is_empty()),
+            CodecId::BlockDelta => postings.len().div_ceil(BLOCK_DOC_COUNT),
+        };
+        if planned.block_offsets.len() != actual_blocks {
+            return Err(SegmentWriteError::SerializationBlockPlanMismatch {
+                term_index,
+                planned_blocks: planned.block_offsets.len(),
+                actual_blocks,
+            });
+        }
+        let block_count =
+            u32::try_from(actual_blocks).map_err(|_| SegmentWriteError::LengthOverflow)?;
+        for (block_idx, &decode_offset) in planned.block_offsets.iter().enumerate() {
+            let (start, end) = match codec_id {
+                CodecId::DeltaVarint => (0, postings.len()),
+                CodecId::BlockDelta => {
+                    let start = block_idx
+                        .checked_mul(BLOCK_DOC_COUNT)
+                        .ok_or(SegmentWriteError::LengthOverflow)?;
+                    (start, cmp::min(start + BLOCK_DOC_COUNT, postings.len()))
+                }
+            };
+            let block = &postings[start..end];
+            let end_doc = block
+                .last()
+                .ok_or(SegmentWriteError::SerializationBlockPlanMismatch {
+                    term_index,
+                    planned_blocks: planned.block_offsets.len(),
+                    actual_blocks,
+                })?
+                .doc_id;
+            let max_term_freq = block
+                .iter()
+                .map(|posting| posting.term_freq)
+                .max()
+                .unwrap_or(0);
+            block_meta.extend_from_slice(bytemuck::bytes_of(&BlockMetadataEntry {
+                end_doc,
+                max_term_freq,
+                decode_offset,
+            }));
+        }
+        cumulative_block_count = cumulative_block_count
+            .checked_add(block_count)
+            .ok_or(SegmentWriteError::LengthOverflow)?;
+
+        push_u64(&mut table, data_offset);
+        push_u32(&mut table, payload_len);
+        push_u32(&mut table, doc_freq);
+        push_u32(&mut table, PostingsEncoding::for_codec(codec_id).kind());
         push_u32(&mut table, first_block_index);
         push_u32(&mut table, block_count);
     }

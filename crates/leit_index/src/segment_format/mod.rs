@@ -16,6 +16,7 @@ pub mod header;
 )]
 pub mod footer;
 
+pub(crate) mod postings_encoding;
 pub(crate) mod readers;
 
 #[expect(

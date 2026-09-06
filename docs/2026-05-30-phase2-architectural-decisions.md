@@ -593,9 +593,10 @@ with three fields (each u32 LE):
    offsets (DEC-01): segment offsets span the whole file (can exceed 4 GiB), whereas a per-term
    payload realistically stays well under 4 GiB even for the most frequent term in a very large
    corpus. Keeping the per-block entry at 12 bytes (3×u32) halves block-meta overhead vs a u64
-   offset. If a future corpus ever produces a single term exceeding 4 GiB of encoded postings,
-   ITER-0006 merge tooling can split that term across multiple postings entries; the format does
-   not break (the bound is a tooling constraint, not a hard format limit).
+   offset. If a corpus produces a single term whose encoded postings or block-relative offset
+   exceeds `u32`, v1 serialization returns a structured `TermPayloadTooLarge` error before emitting
+   output. Splitting one logical term across multiple postings-table entries would require new
+   lexicon semantics and is therefore deferred to a versioned format decision.
 
 **Entry layout (12 bytes, POD bytemuck #[repr(C)]):**
 ```
@@ -624,9 +625,9 @@ via `as_view() -> SegmentView<'_>`, with the lifetime tied to the mmap handle. T
 owning the mmap handle can be wrapped in `Arc` and shared across threads. Each thread obtains
 a `SegmentView<'_>` borrowing the mmap region with a lifetime tied to the borrowing thread's
 scope. Rust's borrow-checking ensures no data races: the borrowed view cannot outlive either
-the mmap handle or the thread's stack frame. **Phase 3 ITER-0006 merge may safely read source
-segments in parallel**, wrapping `MmapSegment` in `Arc<MmapSegment>` and cloning the arc per
-thread; each thread constructs local `SegmentView`s that cannot escape the thread's lifetime.
+the mmap handle or the thread's stack frame. A future raw-byte merge implementation may safely
+read source segments in parallel by wrapping `MmapSegment` in `Arc`; ITER-0006 deliberately merges
+execution-capable in-memory sources because v1 lacks persisted planner/scorer metadata.
 
 **Header validation:** On open, the header is validated (magic bytes and version checked) using
 `ValidationMode::HeaderOnly` to minimize latency. Callers may request structural or full
@@ -641,4 +642,87 @@ ordering, checksum, etc.).
   The borrowed `SegmentView` lifetime already provides safety without copying.
 
 **Enforced by:** ITER-0005 T7 (MmapSegment + equivalence tests).
-**Unblocks:** ITER-0006 (merge may read source segments in parallel via `Arc<MmapSegment>`).
+**Unblocks:** future read-only parallel consumers of serialized segments.
+
+## DEC-22 — Segment postings-table encoding mapping — RESOLVED
+
+**Decision:** The v1 postings-table `codec_id` field is an encoding-kind discriminator distinct
+from the codec payload's DEC-12 marker:
+
+- `0 = LegacyRawV1`: existing 8-byte `(doc_id u32 LE, term_freq u32 LE)` tuples; no payload marker.
+- `1 = DeltaVarint`: payload marker must be `CodecId::DeltaVarint = 0`.
+- `2 = BlockDelta`: payload marker must be `CodecId::BlockDelta = 1`.
+
+Readers accept legacy kind 0, validate the required marker for kinds 1/2, and reject unknown or
+mismatched kinds with a structured error. The table ID is never compared for numeric equality with
+the payload marker. This activates the already-reserved v1 field without reinterpreting existing
+kind-0 bytes or changing table layout.
+
+**Rejected:** assigning table 0 directly to DeltaVarint, which would make existing raw v1 payloads
+ambiguous; stripping payload markers, which would fork the codec contract; a format-version bump,
+which is unnecessary because the reserved discriminator can preserve legacy bytes.
+
+## DEC-23 — Logical merge ownership, schema reconciliation, and identity — RESOLVED
+
+**Decision:** ITER-0006 uses an owned preparation API:
+`prepare_merge(Vec<InMemoryIndex>, FieldAnalyzers) -> Result<PreparedMerge, MergeRejected>`.
+Preparation performs all borrowed validation internally. On failure, `MergeRejected` returns the
+error plus every source and the analyzer registry; on success, opaque `PreparedMerge` owns exactly
+the validated inputs and `execute(self)` is infallible. Raw `SegmentView` input is deferred because
+v1 does not persist field-qualified term ownership or per-document field lengths.
+
+- `AnalysisSchemaId` is a nonzero opaque newtype. `FieldAnalyzers::new/default` remains backward
+  compatible and creates an unspecified (`None`) ID; `with_schema_id(nonzero)` sets it once and an
+  accessor exposes it. Adding/replacing analyzers does not derive or mutate the ID—the ID is the
+  caller's compatibility promise. Each built index snapshots the optional ID.
+- Merge requires an explicit ID: every source and the output registry must have the same `Some(id)`.
+  All sources and the output registry must have the same non-unspecified ID. This is an explicit
+  compatibility promise for opaque/custom tokenizer and normalizer configuration; mismatches are
+  rejected. All sources must also expose identical `FieldId ↔ field alias` mappings, and the output
+  registry must contain every field.
+- Source-local terms are canonicalized by `(FieldId, normalized term text)` and assigned dense
+  output `TermId`s in sorted canonical-key order. Colliding source `TermId`s carry no identity.
+- Documents are assigned dense output IDs by source ordinal then ascending source-local ID. The
+  complete `(source ordinal, old ID) → new ID` mapping is returned; equal local IDs in different
+  sources remain distinct.
+- Source-union posting membership is compared after remapping. Scores and ranking are compared only
+  between the merged index and an independently freshly indexed oracle using global statistics;
+  independently scored source segments are not expected to retain their local scores.
+- Planning performs checked logical count/ID arithmetic before consuming sources. A production-used
+  pure count preflight accepts synthetic `u64` document/term counts, allowing boundary tests at
+  `u32::MAX` and `u32::MAX + 1` without allocating billions of entries. Overflow returns a structured
+  merge error, and rejection returns every owned input to the caller. Encoded-length and byte-offset
+  validation belongs exclusively to DEC-25 serialization.
+
+Logical merge preparation does not select or encode a postings codec. `PreparedMerge::execute`
+returns a `MergedIndex` containing the execution-capable index plus document/term remaps.
+
+## DEC-24 — Deterministic tiered merge policy — RESOLVED
+
+**Decision:** Policy input is an ordered list of `(ordinal, level, size_bytes)` summaries. The policy
+selects the lowest level containing at least two segments, then orders candidates by `(size_bytes,
+ordinal)` and returns at most four ordinals. Fewer than two candidates returns `None`. Selection is
+pure and synchronous; background scheduling, parallelism, deletion, and persistence are outside the
+policy contract.
+
+This intentionally simple 2–4-way tiered policy bounds fan-in while guaranteeing deterministic
+tie-breaking. The merge executor accepts an explicit ordered source list and is not coupled to the
+policy, so later policies can be introduced without changing merge correctness APIs.
+
+## DEC-25 — Fallible serialization is separate from logical merge — RESOLVED
+
+**Decision:** `prepare_serialization(&InMemoryIndex, CodecId) -> Result<PreparedSegment,
+SegmentWriteError>` performs exact u64 sizing, codec encoding, table/sidecar construction, and footer
+checksum generation without mutating the logical index. `PreparedSegment` owns the validated bytes;
+`into_bytes(self)` is infallible. The same merged index may be prepared independently for DeltaVarint
+and BlockDelta. A size/offset failure returns only `SegmentWriteError`; the borrowed logical index
+remains usable.
+
+Before any output allocation, production computes each codec body length exactly with a checked,
+non-allocating pass over postings, then calls a pure `validate_term_payload_len(body_len, marker_len)`
+helper. For compressed kinds `marker_len == 1`; the table's u32 length includes that marker. Thus a
+body of `u32::MAX - 1` is the largest valid compressed body and `u32::MAX` is rejected. Encoding must
+produce exactly the preflighted body length or fail before publishing `PreparedSegment`.
+
+This boundary makes logical merge atomicity independent from codec/layout failure and avoids claiming
+that a codec-specific merge plan can emit a second codec or that today’s fallible writer is infallible.

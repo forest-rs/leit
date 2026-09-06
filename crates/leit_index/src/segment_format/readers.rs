@@ -427,7 +427,7 @@ impl<'a> LexiconReader<'a> {
 ///   - `postings_data_offset` (u64, offset 0)
 ///   - `postings_data_len` (u32, offset 8)
 ///   - `doc_freq` (u32, offset 12)
-///   - `reserved_codec_id` (u32, offset 16) — reserved for per-term codec selection; currently 0
+///   - `encoding_kind` (u32, offset 16) — 0 legacy raw, 1 `DeltaVarint`, 2 `BlockDelta`
 ///   - `first_block_index` (u32, offset 20) — index of the first block for this term
 ///   - `block_count` (u32, offset 24) — number of blocks for this term
 ///
@@ -503,13 +503,13 @@ impl<'a> PostingsTableReader<'a> {
         self.count == 0
     }
 
-    /// Get the postings metadata entry at index `i`: (`postings_data_offset`, `postings_data_len`, `doc_freq`, `reserved_codec_id`, `first_block_index`, `block_count`).
+    /// Get the postings metadata entry at index `i`: (`postings_data_offset`, `postings_data_len`, `doc_freq`, `encoding_kind`, `first_block_index`, `block_count`).
     ///
     /// # Arguments
     /// * `i` - entry index (`0..len()`)
     ///
     /// # Returns
-    /// (`postings_data_offset`: u64, `postings_data_len`: u32, `doc_freq`: u32, `reserved_codec_id`: u32, `first_block_index`: u32, `block_count`: u32) or `SegmentError`.
+    /// (`postings_data_offset`: u64, `postings_data_len`: u32, `doc_freq`: u32, `encoding_kind`: u32, `first_block_index`: u32, `block_count`: u32) or `SegmentError`.
     pub fn entry(&self, i: u32) -> Result<(u64, u32, u32, u32, u32, u32), SegmentError> {
         if i >= self.count {
             return Err(SegmentError::BadOffset {
@@ -556,7 +556,7 @@ impl<'a> PostingsTableReader<'a> {
         let postings_data_offset = read_u64_le(self.buffer, offset_usize)?;
         let postings_data_len = read_u32_le(self.buffer, offset_usize + 8)?;
         let doc_freq = read_u32_le(self.buffer, offset_usize + 12)?;
-        let reserved_codec_id = read_u32_le(self.buffer, offset_usize + 16)?;
+        let encoding_kind = read_u32_le(self.buffer, offset_usize + 16)?;
         let first_block_index = read_u32_le(self.buffer, offset_usize + 20)?;
         let block_count = read_u32_le(self.buffer, offset_usize + 24)?;
 
@@ -564,7 +564,7 @@ impl<'a> PostingsTableReader<'a> {
             postings_data_offset,
             postings_data_len,
             doc_freq,
-            reserved_codec_id,
+            encoding_kind,
             first_block_index,
             block_count,
         ))

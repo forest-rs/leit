@@ -19,8 +19,11 @@ publish = false
 rapidhash = { workspace = true }
 
 [dev-dependencies]
+leit_collect = { features = ["bench-internals", "std"], workspace = true }
 leit_core = { features = ["std"], workspace = true }
-leit_index = { features = ["std"], workspace = true }
+leit_index = { features = ["bench-internals", "std"], workspace = true }
+leit_postings = { features = ["bench-internals", "std"], workspace = true }
+leit_query = { features = ["std"], workspace = true }
 leit_text = { features = ["std"], workspace = true }
 
 [lints]

@@ -26,10 +26,15 @@ mod cursor;
 mod error;
 mod index_surface;
 mod memory;
+mod merge;
+mod merge_policy;
+#[cfg(feature = "bench-internals")]
+mod reference_execution;
 mod search;
 mod segment;
 mod segment_format;
 mod segment_index;
+mod serialization;
 
 pub use builder::{InMemoryIndexBuilder, IndexBuilder};
 pub use error::{IndexError, SegmentError, ValidationMode};
@@ -37,7 +42,17 @@ pub use index_surface::{
     ExecutableIndex, FieldStatsView, PlanningIndex, PostingBlockView, TermEntryView,
 };
 pub use leit_core::{FilterEvaluator, FilterSlotId, NoFilter};
+pub use leit_postings::codec::CodecId;
+pub use leit_query::{BooleanOp, QueryBuilder, UserQueryNode, UserQueryProgram};
+#[cfg(feature = "bench-internals")]
+#[doc(hidden)]
+pub use memory::BenchmarkScratchCapacities;
 pub use memory::{InMemoryIndex, PostingEntry};
+pub use merge::{MergeError, MergeRejected, MergedIndex, PreparedMerge, prepare_merge};
+pub use merge_policy::{SegmentSummary, select_merge_candidates};
+#[cfg(feature = "bench-internals")]
+#[doc(hidden)]
+pub use reference_execution::ReferenceExecutionIndex;
 pub use search::{ExecutionStats, ExecutionWorkspace, SearchScorer};
 #[expect(
     deprecated,
@@ -57,3 +72,4 @@ pub use segment_format::{
     PostingsDataReader, PostingsTableReader, SegmentHeader, SegmentView,
 };
 pub use segment_index::SegmentIndex;
+pub use serialization::{PreparedSegment, SegmentWriteError, prepare_serialization};

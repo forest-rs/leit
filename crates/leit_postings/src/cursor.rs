@@ -91,12 +91,23 @@ pub enum CursorStatus {
 /// cursors via `&'a mut DecodeScratch`. A cursor borrows it for its lifetime, decodes
 /// the codec payload into it, and steps over the decoded values. The scratch is reused
 /// across many cursors, so capacity is retained to avoid reallocation.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DecodeScratch {
     /// Decoded document IDs.
     docs: Vec<SegmentLocalDocId>,
     /// Decoded term frequencies (parallel to docs).
     tfs: Vec<TermFreq>,
+}
+
+/// Primitive retained capacities exposed only for benchmark evidence.
+#[cfg(feature = "bench-internals")]
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DecodeCapacities {
+    /// Decoded document buffer capacity.
+    pub documents: usize,
+    /// Decoded term-frequency buffer capacity.
+    pub term_frequencies: usize,
 }
 
 impl DecodeScratch {
@@ -141,6 +152,16 @@ impl DecodeScratch {
     /// together without the borrow checker rejecting two sequential `&mut self` calls.
     pub(crate) fn bufs_mut(&mut self) -> (&mut Vec<SegmentLocalDocId>, &mut Vec<TermFreq>) {
         (&mut self.docs, &mut self.tfs)
+    }
+
+    /// Return primitive retained capacities for benchmark evidence.
+    #[cfg(feature = "bench-internals")]
+    #[doc(hidden)]
+    pub fn benchmark_capacities(&self) -> DecodeCapacities {
+        DecodeCapacities {
+            documents: self.docs.capacity(),
+            term_frequencies: self.tfs.capacity(),
+        }
     }
 }
 

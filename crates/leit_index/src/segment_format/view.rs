@@ -15,6 +15,7 @@ use crate::error::{SegmentError, ValidationMode};
 
 use super::footer;
 use super::header::SegmentHeader;
+use super::postings_encoding::PostingsEncoding;
 use super::readers::{
     BlockMetadataReader, FieldTableReader, LexiconReader, PostingsDataReader, PostingsTableReader,
 };
@@ -60,8 +61,8 @@ impl<'a> SegmentView<'a> {
     ///   are ordered/non-overlapping via `header.validate_layout()`.
     ///   Safe and fast for most use cases.
     ///
-    /// - **Full:** Structural + footer checksum validation via `Footer::verify()`.
-    ///   Detects corruption in the covered byte range [0, `footer_offset`).
+    /// - **Full:** Structural + footer checksum validation via `Footer::verify()` + postings
+    ///   encoding-kind/payload-marker validation.
     ///
     /// # Arguments
     /// * `bytes` - complete segment buffer
@@ -77,6 +78,8 @@ impl<'a> SegmentView<'a> {
     /// - `SegmentError::BadOffset` if offsets are out of bounds (Structural/Full only)
     /// - `SegmentError::BadSectionLayout` if sections are misordered (Structural/Full only)
     /// - `SegmentError::BadChecksum` if footer checksum fails (Full only)
+    /// - `SegmentError::UnknownPostingsEncoding` or
+    ///   `SegmentError::PostingsEncodingMarkerMismatch` if postings semantics fail (Full only)
     pub fn open_with_validation(
         bytes: &'a [u8],
         mode: ValidationMode,
@@ -92,6 +95,7 @@ impl<'a> SegmentView<'a> {
         // Full mode: validate footer checksum
         if mode == ValidationMode::Full {
             footer::Footer::verify(bytes, header.footer_offset)?;
+            validate_postings_encodings(bytes, &header)?;
         }
 
         Ok(Self {
@@ -199,6 +203,40 @@ impl<'a> SegmentView<'a> {
     pub fn document_count(&self) -> u32 {
         self.header.document_count
     }
+}
+
+fn validate_postings_encodings(bytes: &[u8], header: &SegmentHeader) -> Result<(), SegmentError> {
+    let table = PostingsTableReader::new(
+        bytes,
+        header.postings_table_offset,
+        header.postings_data_offset,
+    )?;
+    let data =
+        PostingsDataReader::new(bytes, header.postings_data_offset, header.block_meta_offset)?;
+
+    for postings_index in 0..table.len() {
+        let (offset, len, _, encoding_kind, _, _) = table.entry(postings_index)?;
+        let payload = data.range(offset, len)?;
+        let encoding = PostingsEncoding::from_kind(encoding_kind).ok_or(
+            SegmentError::UnknownPostingsEncoding {
+                postings_index,
+                encoding_kind,
+            },
+        )?;
+        let Some(expected) = encoding.expected_marker() else {
+            continue;
+        };
+        let found = payload.first().copied();
+        if found != Some(expected) {
+            return Err(SegmentError::PostingsEncodingMarkerMismatch {
+                postings_index,
+                encoding_kind,
+                expected,
+                found,
+            });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

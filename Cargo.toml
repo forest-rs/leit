@@ -46,6 +46,7 @@ leit_wind_tunnel = { path = "crates/leit_wind_tunnel" }
 # Testing
 criterion = { version = "0.5" }
 proptest = { version = "1.0" }
+tempfile = { version = "3" }
 
 # Hashing
 rapidhash = { version = "4.4" }

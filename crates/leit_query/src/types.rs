@@ -789,6 +789,12 @@ pub enum QueryError {
         /// The field whose configured weight was invalid.
         field: leit_core::FieldId,
     },
+    /// A typed boost factor (or the composed product of nested boost
+    /// factors, including the context default boost) was not finite and non-negative.
+    InvalidBoost {
+        /// The offending boost node, or the term/phrase whose effective boost was invalid.
+        node: QueryNodeId,
+    },
 }
 
 impl core::error::Error for QueryError {}
@@ -842,6 +848,11 @@ impl fmt::Display for QueryError {
                 f,
                 "invalid BM25F field weight for field {}: weights must be finite and non-negative",
                 field.as_u32()
+            ),
+            Self::InvalidBoost { node } => write!(
+                f,
+                "invalid boost at node {}: boost factors must be finite and non-negative",
+                node.as_u32()
             ),
         }
     }
