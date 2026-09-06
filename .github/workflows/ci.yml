@@ -26,7 +26,6 @@ env:
   RUST_STD_ONLY_PKGS: >-
     --exclude basic_search
     --exclude explicit_execution
-    --exclude leit_index
     --exclude leit_benchmark
     --exclude leit_integration_tests
     --exclude leit_wind_tunnel
@@ -48,7 +47,8 @@ env:
     --exclude leit_wind_tunnel_index
     --exclude leit_wind_tunnel_query
   # List of features that depend on the standard library and will be excluded from no_std checks.
-  FEATURES_DEPENDING_ON_STD: "std,default"
+  # leit_index's mmap feature is std-only; its default feature set is covered by `std` and `default`.
+  FEATURES_DEPENDING_ON_STD: "std,default,mmap"
 
 
 # Rationale
