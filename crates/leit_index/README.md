@@ -64,7 +64,7 @@ callers. Existing calls gain a `PlanOptions::default()` argument, and
 `SearchScorer::bm25f()` still selects BM25F scoring.
 
 The complete version of this flow is compiled and run by the workspace's
-[`basic_search` example](../../examples/basic_search/src/main.rs). The analyzer
+[`basic_search` example](https://github.com/forest-rs/leit/blob/main/examples/basic_search/src/main.rs). The analyzer
 configured for a field is applied while indexing and while resolving query
 terms, so both sides use the same normalization rules.
 

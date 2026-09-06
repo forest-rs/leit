@@ -10,8 +10,7 @@ The current codebase implements a Phase 1 in-memory search stack with:
 - explicit scorer selection in the in-memory index execution path
 - BM25 scoring wired through `leit_index` via explicit scorer selection
 - BM25F scoring with cross-field aggregation and configurable per-field weights
-- postings storage and cursor traits (execution currently uses index-internal
-  postings; cursor-based traversal is Phase 2 work)
+- postings storage and cursor traits used by the in-memory execution path
 - top-k collection
 - reciprocal-rank fusion
 - in-memory indexing and segment validation
@@ -21,7 +20,51 @@ small public surface.
 
 ## Quick start
 
-The complete, runnable introduction is the [`basic_search` example](examples/basic_search/src/main.rs). It configures per-field Unicode analyzers, builds an immutable in-memory index, and runs ranked queries with BM25:
+Add the three crates used by the minimal search path:
+
+```toml
+[dependencies]
+leit_core = "0.1"
+leit_index = "0.1"
+leit_text = "0.1"
+```
+
+Then put this in `src/main.rs`. It configures a field analyzer, builds an
+immutable in-memory index, and runs a ranked query with BM25:
+
+```rust
+use leit_core::FieldId;
+use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer};
+use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
+
+fn main() -> Result<(), leit_index::IndexError> {
+    let title = FieldId::new(1);
+    let mut analyzers = FieldAnalyzers::new();
+    analyzers.set(
+        title,
+        Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
+    );
+
+    let mut builder = InMemoryIndexBuilder::new(analyzers);
+    builder.register_field_alias(title, "title");
+    builder.index_document(1, &[(title, "Rust retrieval")])?;
+    let index = builder.build_index();
+
+    let mut workspace = ExecutionWorkspace::new();
+    let hits = workspace.search(
+        &index,
+        "title:rust",
+        10,
+        SearchScorer::bm25(),
+        &NoFilter,
+    )?;
+    println!("{} hit(s)", hits.len());
+    Ok(())
+}
+```
+
+The same flow is available as a runnable workspace example. It adds several
+documents and demonstrates Unicode normalization and case folding:
 
 ```bash
 cargo run -p basic_search
@@ -70,8 +113,8 @@ workflow, and there is no durable update or delete lifecycle yet. `SegmentView`
 validates borrowed serialized data, while `SegmentIndex` is currently a thin
 wrapper and is not an execution backend for `ExecutionWorkspace`.
 
-The crate boundaries leave room for additional storage backends, analysis
-strategies, and scoring methods as later phases add them.
+The current public scope is intentionally limited to this immutable in-memory
+path and the borrowed segment validation APIs.
 
 ## Verification
 
@@ -87,7 +130,10 @@ cargo doc --no-deps
 The library crates also support `no_std + alloc` builds with:
 
 ```bash
-cargo build --workspace --exclude leit_integration_tests --exclude leit_benchmark --no-default-features
+cargo build \
+  -p leit_core -p leit_score -p leit_query -p leit_text \
+  -p leit_postings -p leit_fusion -p leit_collect -p leit_index \
+  --no-default-features --target x86_64-unknown-none
 ```
 
 ## PR Preparation
