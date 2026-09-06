@@ -31,17 +31,17 @@ categories = ["algorithms", "data-structures", "database-implementations"]
 
 [workspace.dependencies]
 # Internal crate dependencies
-leit_benchmark = { path = "crates/leit_benchmark" }
-leit_collect = { default-features = false, path = "crates/leit_collect" }
-leit_core = { default-features = false, path = "crates/leit_core" }
-leit_fusion = { default-features = false, path = "crates/leit_fusion" }
-leit_index = { default-features = false, path = "crates/leit_index" }
-leit_integration_tests = { path = "crates/leit_integration_tests" }
-leit_postings = { default-features = false, path = "crates/leit_postings" }
-leit_query = { default-features = false, path = "crates/leit_query" }
-leit_score = { default-features = false, path = "crates/leit_score" }
-leit_text = { default-features = false, path = "crates/leit_text" }
-leit_wind_tunnel = { path = "crates/leit_wind_tunnel" }
+leit_benchmark = { path = "crates/leit_benchmark", version = "0.1.0" }
+leit_collect = { default-features = false, path = "crates/leit_collect", version = "0.1.0" }
+leit_core = { default-features = false, path = "crates/leit_core", version = "0.1.0" }
+leit_fusion = { default-features = false, path = "crates/leit_fusion", version = "0.1.0" }
+leit_index = { default-features = false, path = "crates/leit_index", version = "0.1.0" }
+leit_integration_tests = { path = "crates/leit_integration_tests", version = "0.1.0" }
+leit_postings = { default-features = false, path = "crates/leit_postings", version = "0.1.0" }
+leit_query = { default-features = false, path = "crates/leit_query", version = "0.1.0" }
+leit_score = { default-features = false, path = "crates/leit_score", version = "0.1.0" }
+leit_text = { default-features = false, path = "crates/leit_text", version = "0.1.0" }
+leit_wind_tunnel = { path = "crates/leit_wind_tunnel", version = "0.1.0" }
 
 # Testing
 criterion = { version = "0.5" }
