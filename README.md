@@ -1,6 +1,6 @@
 # Leit
 
-A modular Rust search library.
+A modular Rust library for building small, in-memory lexical search systems.
 
 Leit is a workspace of small crates for building full-text retrieval systems.
 The current codebase implements a Phase 1 in-memory search stack with:
@@ -18,6 +18,16 @@ The current codebase implements a Phase 1 in-memory search stack with:
 
 The crate boundaries are intentional. Each crate owns one concern and exposes a
 small public surface.
+
+## Quick start
+
+The complete, runnable introduction is the [`basic_search` example](examples/basic_search/src/main.rs). It configures per-field Unicode analyzers, builds an immutable in-memory index, and runs ranked queries with BM25:
+
+```bash
+cargo run -p basic_search
+```
+
+For explicit planning, multiple collectors, and execution statistics, run the [`explicit_execution` example](examples/explicit_execution/src/main.rs).
 
 ## `no_std` and `alloc`
 
@@ -54,10 +64,14 @@ default features disabled.
 
 ## Current status
 
-The workspace is centered on the in-memory Phase 1 path. The public APIs and
-tests are already set up so later phases can swap in more storage backends,
-analysis strategies, and scoring methods without collapsing the crate
-boundaries.
+The workspace is centered on the in-memory Phase 1 path. `InMemoryIndex` is
+immutable after construction; rebuilding an index is the current replacement
+workflow, and there is no durable update or delete lifecycle yet. `SegmentView`
+validates borrowed serialized data, while `SegmentIndex` is currently a thin
+wrapper and is not an execution backend for `ExecutionWorkspace`.
+
+The crate boundaries leave room for additional storage backends, analysis
+strategies, and scoring methods as later phases add them.
 
 ## Verification
 

@@ -8,7 +8,6 @@ This crate provides:
 - `InMemoryIndex` to hold immutable retrieval data
 - `SegmentView` to validate and read serialized segments from `&[u8]`
 - `ExecutionWorkspace` to plan and execute queries with reusable scratch state
-- `Option<SearchScorer>` to choose scored or unscored execution
 - `SearchScorer` to choose the ranking policy for execution
 
 The public surface stays small. Query planning lives in `leit-query`, but most
@@ -38,8 +37,6 @@ workspace.execute(
     &NoFilter,
     &mut collectors,
 )?;
-let hits = top_k.finish();
-let count = count.finish();
 ```
 
 `ExecutionWorkspace` accepts one `PlanOptions` value on every planning and
@@ -66,8 +63,20 @@ fields are private so future planning controls can be added without breaking
 callers. Existing calls gain a `PlanOptions::default()` argument, and
 `SearchScorer::bm25f()` still selects BM25F scoring.
 
+The complete version of this flow is compiled and run by the workspace's
+[`basic_search` example](../../examples/basic_search/src/main.rs). The analyzer
+configured for a field is applied while indexing and while resolving query
+terms, so both sides use the same normalization rules.
+
 This crate is structured for `no_std + alloc` builds, with `std` enabled by
-default for the current Phase 1 path.
+default. The `mmap` feature adds memory-mapped segment access and requires
+`std`.
+
+`InMemoryIndex` is immutable after construction. `ExecutionWorkspace` currently
+executes plans only against `InMemoryIndex`; `SegmentIndex` is a thin wrapper
+around `SegmentView` while the serialized format is still gaining the metadata
+needed for direct execution. There is no durable update or delete lifecycle in
+Phase 1.
 
 ## Segment Format
 
@@ -84,5 +93,5 @@ the declared sections.
 ## Features
 
 - `std` - Enable standard library support (enabled by default)
-- `alloc` - Enable alloc support (automatically enabled with `std`)
-- `serde` - Enable serde serialization support
+- `mmap` - Enable memory-mapped segment access (also enables `std`)
+- `bench-internals` - Expose benchmark-only posting snapshots
