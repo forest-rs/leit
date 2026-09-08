@@ -82,11 +82,13 @@ integration issue. But other matches mention an atlas under **non-goals**:
 lexical retrieval cannot distinguish desired work from explicitly excluded work.
 Read the excerpt and issue before treating a result as a recommendation.
 
+The app uses `ExecutionWorkspace::plan_program` with `PlanOptions` for its
+typed query and BM25F field weights. The workspace attaches the filter slots
+and applies the weights as part of the same planning call; see
+[src/search.rs](src/search.rs) for the integration point.
+
 There are also concrete limits in the current library integration:
 
-- The convenient typed workspace planner cannot accept field weights. This app
-  uses `Planner::plan_program` and explicitly wraps external filter slots before
-  execution. That duplicated integration responsibility deserves a calmer API.
 - The provided whitespace tokenizer retains punctuation. A domain tokenizer is
   necessary for engineering prose. The existing tokenizer trait makes this
   possible without changing core crates, but applications must supply it.

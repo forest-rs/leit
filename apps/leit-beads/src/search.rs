@@ -5,9 +5,9 @@ use crate::{cli::Options, model::Issue, text};
 use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::{FieldId, FilterEvaluator, FilterSlotId};
 use leit_index::{
-    ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, QueryBuilder, SearchScorer,
+    ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, PlanOptions, QueryBuilder,
+    SearchScorer,
 };
-use leit_query::{Planner, PlannerScratch, PlanningContext};
 use leit_text::FieldAnalyzers;
 use std::time::Instant;
 
@@ -122,29 +122,26 @@ pub(crate) fn run(issues: &[Issue], options: &Options) -> Result<Outcome, String
         query.and(children);
     }
     let program = query.build().ok_or("could not build query")?;
-    let weights = fields
+    let field_weights = fields
         .iter()
         .copied()
         .zip(FIELDS.map(|(_, weight)| weight))
         .collect();
-    let context = PlanningContext::new(&index, &index)
-        .with_default_fields(fields)
-        .with_field_weights(weights);
-    let mut plan = Planner::new()
-        .plan_program(&program, &context, &mut PlannerScratch::new())
-        .map_err(|e| e.to_string())?;
     let allowed = Allowed(
         issues
             .iter()
             .map(|issue| issue.allowed(&options.filters))
             .collect(),
     );
-    // Typed workspace planning has no field-weight option. Preserve its filter
-    // wrapping contract explicitly while using the lower-level weighted planner.
-    for slot in allowed.slots() {
-        plan.wrap_external_filter(*slot);
-    }
     let mut workspace = ExecutionWorkspace::new();
+    let plan = workspace
+        .plan_program(
+            &index,
+            &program,
+            PlanOptions::new().with_default_field_weights(field_weights),
+            &allowed,
+        )
+        .map_err(|e| e.to_string())?;
     let mut top = TopKCollector::new(options.limit);
     let mut count = CountCollector::new();
     workspace

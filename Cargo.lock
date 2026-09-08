@@ -559,7 +559,6 @@ dependencies = [
  "leit_collect",
  "leit_core",
  "leit_index",
- "leit_query",
  "leit_text",
  "serde_json",
  "tempfile",
