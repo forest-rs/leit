@@ -53,7 +53,7 @@ pub use merge_policy::{SegmentSummary, select_merge_candidates};
 #[cfg(feature = "bench-internals")]
 #[doc(hidden)]
 pub use reference_execution::ReferenceExecutionIndex;
-pub use search::{ExecutionStats, ExecutionWorkspace, SearchScorer};
+pub use search::{ExecutionStats, ExecutionWorkspace, PlanOptions, SearchScorer};
 #[expect(
     deprecated,
     reason = "DirectorySegmentView is a deprecated Phase 1 artifact; kept for frozen compatibility"

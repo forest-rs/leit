@@ -674,8 +674,10 @@ impl<'a> PlanningContext<'a> {
 
     /// Set per-field BM25F weight overrides.
     ///
-    /// Fields absent from the map default to weight 1.0 at execution time. Weights
-    /// must be finite and non-negative.
+    /// These weights are stored on unqualified terms expanded across multiple
+    /// default fields. Explicitly fielded terms and terms planned against a
+    /// single default field use unit weight. Fields absent from the map default
+    /// to weight 1.0 at execution time. Weights must be finite and non-negative.
     #[must_use]
     pub fn with_field_weights(mut self, weights: BTreeMap<leit_core::FieldId, f32>) -> Self {
         validate_field_weights(&weights)
@@ -686,8 +688,10 @@ impl<'a> PlanningContext<'a> {
 
     /// Try to set per-field BM25F weight overrides.
     ///
-    /// Fields absent from the map default to weight 1.0 at execution time. Weights
-    /// must be finite and non-negative.
+    /// These weights are stored on unqualified terms expanded across multiple
+    /// default fields. Explicitly fielded terms and terms planned against a
+    /// single default field use unit weight. Fields absent from the map default
+    /// to weight 1.0 at execution time. Weights must be finite and non-negative.
     pub fn try_with_field_weights(
         mut self,
         weights: BTreeMap<leit_core::FieldId, f32>,

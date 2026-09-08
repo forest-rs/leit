@@ -10,7 +10,8 @@ use leit_collect::{Collector, CountCollector, TopKCollector};
 use leit_core::{EntityId, Score, ScoredHit, ScratchSpace, Workspace};
 use leit_fusion::{RankedResult, fuse_default};
 use leit_index::{
-    ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer, SegmentView, ValidationMode,
+    ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer, SegmentView,
+    ValidationMode,
 };
 use leit_query::{
     FeatureSet, FieldRegistry, Planner, PlannerScratch, PlanningContext, QueryNode, TermDictionary,
@@ -653,6 +654,7 @@ fn test_e2e_search_pipeline() {
             "title:rust OR body:retrieval",
             10,
             SearchScorer::bm25(),
+            PlanOptions::default(),
             &NoFilter,
         )
         .expect("search should succeed");
@@ -731,6 +733,7 @@ fn test_e2e_search_pipeline_bm25f() {
             "title:rust OR body:retrieval",
             10,
             SearchScorer::bm25f(),
+            PlanOptions::default(),
             &NoFilter,
         )
         .expect("bm25f search should succeed");

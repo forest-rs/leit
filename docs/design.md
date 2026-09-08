@@ -147,9 +147,14 @@ field set separately from the resolved term children, so execution can
 aggregate per document before a single BM25F scoring call and add
 zero-frequency field stats for searched fields that are present in the
 document but do not contain the term. Explicit boolean `OR` remains a boolean
-operator and sums child scores. Configurable per-field weights are supported via
-`PlanningContext::with_field_weights`; fields default to weight `1.0` when
-not explicitly configured.
+operator and sums child scores. Configurable per-field weights for default-field
+term expansions are supported via `PlanningContext::with_field_weights`; fields
+default to weight `1.0` when not explicitly configured. Explicitly fielded terms
+and terms planned against a single default field use unit weight.
+High-level index consumers provide the same configuration through
+`PlanOptions::with_default_field_weights`; `ExecutionWorkspace` combines it
+with index-derived default fields and external filters for both textual and
+typed planning.
 
 That distinction should remain true as Leit grows:
 

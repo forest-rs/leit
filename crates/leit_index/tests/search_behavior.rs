@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::FieldId;
 use leit_index::{
-    ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
+    ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions,
     PlanningIndex, SearchScorer,
 };
 use leit_query::{
@@ -77,7 +77,14 @@ fn search(
     limit: usize,
 ) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
-    workspace.search(index, query, limit, SearchScorer::bm25(), &NoFilter)
+    workspace.search(
+        index,
+        query,
+        limit,
+        SearchScorer::bm25(),
+        PlanOptions::default(),
+        &NoFilter,
+    )
 }
 
 #[test]
@@ -86,7 +93,7 @@ fn workspace_plan_accepts_non_in_memory_planning_index() {
     let mut workspace = ExecutionWorkspace::new();
 
     let plan = workspace
-        .plan(&index, "rust", &NoFilter)
+        .plan(&index, "rust", PlanOptions::default(), &NoFilter)
         .expect("planning should work through PlanningIndex");
 
     assert_eq!(
@@ -102,7 +109,14 @@ fn search_with_stats(
     limit: usize,
 ) -> Result<(Vec<leit_core::ScoredHit<u32>>, ExecutionStats), leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
-    let hits = workspace.search(index, query, limit, SearchScorer::bm25(), &NoFilter)?;
+    let hits = workspace.search(
+        index,
+        query,
+        limit,
+        SearchScorer::bm25(),
+        PlanOptions::default(),
+        &NoFilter,
+    )?;
     Ok((hits, workspace.last_stats()))
 }
 
@@ -426,7 +440,7 @@ fn count_uses_unscored_execution_path() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha", &NoFilter)
+        .plan(&index, "alpha", PlanOptions::default(), &NoFilter)
         .expect("plan should succeed");
     let mut counter = CountCollector::new();
     workspace
@@ -472,7 +486,7 @@ fn multi_collector_returns_topk_and_count_from_one_execution() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha", &NoFilter)
+        .plan(&index, "alpha", PlanOptions::default(), &NoFilter)
         .expect("plan should succeed");
     let mut top_k = TopKCollector::new(1);
     let mut count = CountCollector::new();
@@ -532,7 +546,7 @@ fn multi_collector_uses_lowest_score_threshold_for_shared_pruning() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha", &NoFilter)
+        .plan(&index, "alpha", PlanOptions::default(), &NoFilter)
         .expect("plan should succeed");
 
     let mut top1 = TopKCollector::new(1);
@@ -572,7 +586,7 @@ fn score_aware_collectors_require_a_scorer() {
 
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "alpha", &NoFilter)
+        .plan(&index, "alpha", PlanOptions::default(), &NoFilter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(5);
     let error = workspace
@@ -660,17 +674,31 @@ fn search_bm25f(
     limit: usize,
 ) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
-    workspace.search(index, query, limit, SearchScorer::bm25f(), &NoFilter)
+    workspace.search(
+        index,
+        query,
+        limit,
+        SearchScorer::bm25f(),
+        PlanOptions::default(),
+        &NoFilter,
+    )
 }
 
-fn search_bm25f_with_field_weights(
+fn search_bm25f_weighted(
     index: &InMemoryIndex,
     query: &str,
     limit: usize,
     field_weights: std::collections::BTreeMap<FieldId, f32>,
 ) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
-    workspace.search_bm25f_with_field_weights(index, query, limit, field_weights, &NoFilter)
+    workspace.search(
+        index,
+        query,
+        limit,
+        SearchScorer::bm25f(),
+        PlanOptions::new().with_default_field_weights(field_weights),
+        &NoFilter,
+    )
 }
 
 fn search_bm25f_with_default_boost(
@@ -1018,8 +1046,7 @@ fn bm25f_field_weights_match_scorer_output() {
     let mut weights = std::collections::BTreeMap::new();
     weights.insert(FieldId::new(1), 2.0);
     weights.insert(FieldId::new(2), 0.5);
-    let hits = search_bm25f_with_field_weights(&index, "rust", 10, weights)
-        .expect("search should succeed");
+    let hits = search_bm25f_weighted(&index, "rust", 10, weights).expect("search should succeed");
 
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].id, 1);
@@ -1063,7 +1090,7 @@ fn bm25f_high_level_field_weights_reject_invalid_values() {
     let mut weights = std::collections::BTreeMap::new();
     weights.insert(FieldId::new(1), f32::INFINITY);
 
-    let error = search_bm25f_with_field_weights(&index, "rust", 10, weights)
+    let error = search_bm25f_weighted(&index, "rust", 10, weights)
         .expect_err("invalid field weights should be rejected");
 
     assert_eq!(
@@ -1103,8 +1130,8 @@ fn bm25f_field_weights_affect_scoring() {
     let mut title_heavy = std::collections::BTreeMap::new();
     title_heavy.insert(FieldId::new(1), 3.0);
     title_heavy.insert(FieldId::new(2), 1.0);
-    let weighted = search_bm25f_with_field_weights(&index, "rust", 10, title_heavy)
-        .expect("search should succeed");
+    let weighted =
+        search_bm25f_weighted(&index, "rust", 10, title_heavy).expect("search should succeed");
 
     assert_eq!(equal.len(), 2);
     assert_eq!(weighted.len(), 2);

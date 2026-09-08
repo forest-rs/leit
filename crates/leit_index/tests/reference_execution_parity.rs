@@ -9,7 +9,7 @@ use leit_collect::TopKCollector;
 use leit_core::{FieldId, FilterSlotId, QueryNodeId, ScoredHit};
 use leit_index::{
     ExecutionWorkspace, FilterEvaluator, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
-    ReferenceExecutionIndex, SearchScorer,
+    PlanOptions, ReferenceExecutionIndex, SearchScorer,
 };
 use leit_query::{ExecutionPlan, FeatureSet, QueryNode, QueryProgram, TermDictionary};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
@@ -76,7 +76,7 @@ fn assert_golden_score_bits(hits: &[ScoredHit<u32>], expected: &[(u32, u32)]) {
 fn fielded_bm25_term_scores_match() -> Result<(), leit_index::IndexError> {
     let (optimized, reference) = indexes()?;
     let mut workspace = ExecutionWorkspace::new();
-    let plan = workspace.plan(&optimized, "title:rust", &NoFilter)?;
+    let plan = workspace.plan(&optimized, "title:rust", PlanOptions::default(), &NoFilter)?;
     for limit in [1, 16] {
         let mut collector = TopKCollector::new(limit);
         workspace.execute(
@@ -100,7 +100,12 @@ fn fielded_bm25_term_scores_match() -> Result<(), leit_index::IndexError> {
 fn fielded_or_combines_term_scores() -> Result<(), leit_index::IndexError> {
     let (optimized, reference) = indexes()?;
     let mut workspace = ExecutionWorkspace::new();
-    let plan = workspace.plan(&optimized, "title:rust OR body:search", &NoFilter)?;
+    let plan = workspace.plan(
+        &optimized,
+        "title:rust OR body:search",
+        PlanOptions::default(),
+        &NoFilter,
+    )?;
     for limit in [1, 16] {
         let mut collector = TopKCollector::new(limit);
         workspace.execute(
@@ -126,7 +131,12 @@ fn fielded_or_combines_term_scores() -> Result<(), leit_index::IndexError> {
 fn fielded_term_rejects_document_29() -> Result<(), leit_index::IndexError> {
     let (optimized, reference) = indexes()?;
     let mut workspace = ExecutionWorkspace::new();
-    let plan = workspace.plan(&optimized, "title:rust", &RejectDocument29)?;
+    let plan = workspace.plan(
+        &optimized,
+        "title:rust",
+        PlanOptions::default(),
+        &RejectDocument29,
+    )?;
     for limit in [1, 16] {
         let mut collector = TopKCollector::new(limit);
         workspace.execute(
@@ -148,7 +158,7 @@ fn fielded_term_rejects_document_29() -> Result<(), leit_index::IndexError> {
 fn unfielded_bm25f_combines_field_hits() -> Result<(), leit_index::IndexError> {
     let (optimized, reference) = indexes()?;
     let mut workspace = ExecutionWorkspace::new();
-    let plan = workspace.plan(&optimized, "rust", &NoFilter)?;
+    let plan = workspace.plan(&optimized, "rust", PlanOptions::default(), &NoFilter)?;
     for limit in [1, 16] {
         let mut collector = TopKCollector::new(limit);
         workspace.execute(
@@ -174,7 +184,7 @@ fn unfielded_bm25f_combines_field_hits() -> Result<(), leit_index::IndexError> {
 fn fielded_bm25f_term_scores_match() -> Result<(), leit_index::IndexError> {
     let (optimized, reference) = indexes()?;
     let mut workspace = ExecutionWorkspace::new();
-    let plan = workspace.plan(&optimized, "title:rust", &NoFilter)?;
+    let plan = workspace.plan(&optimized, "title:rust", PlanOptions::default(), &NoFilter)?;
     for limit in [1, 16] {
         let mut collector = TopKCollector::new(limit);
         workspace.execute(
@@ -196,7 +206,12 @@ fn fielded_bm25f_term_scores_match() -> Result<(), leit_index::IndexError> {
 fn fielded_bm25f_or_combines_term_scores() -> Result<(), leit_index::IndexError> {
     let (optimized, reference) = indexes()?;
     let mut workspace = ExecutionWorkspace::new();
-    let plan = workspace.plan(&optimized, "title:rust OR body:search", &NoFilter)?;
+    let plan = workspace.plan(
+        &optimized,
+        "title:rust OR body:search",
+        PlanOptions::default(),
+        &NoFilter,
+    )?;
     for limit in [1, 16] {
         let mut collector = TopKCollector::new(limit);
         workspace.execute(
@@ -261,7 +276,12 @@ fn constant_score_overrides_term_scores() -> Result<(), leit_index::IndexError> 
 fn conjunction_excludes_negated_matches() -> Result<(), leit_index::IndexError> {
     let (optimized, reference) = indexes()?;
     let mut workspace = ExecutionWorkspace::new();
-    let plan = workspace.plan(&optimized, "title:rust AND NOT body:search", &NoFilter)?;
+    let plan = workspace.plan(
+        &optimized,
+        "title:rust AND NOT body:search",
+        PlanOptions::default(),
+        &NoFilter,
+    )?;
     for limit in [1, 16] {
         let mut collector = TopKCollector::new(limit);
         workspace.execute(

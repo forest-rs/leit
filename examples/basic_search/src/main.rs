@@ -4,7 +4,7 @@
 //! Minimal end-to-end example for the Leit stack.
 
 use leit_core::{FieldId, ScoredHit};
-use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer};
+use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer};
 use leit_text::{Analyzer, CaseMapping, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
 const TITLE: FieldId = FieldId::new(1);
@@ -81,6 +81,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             "title:rust OR retrieval",
             5,
             SearchScorer::bm25(),
+            PlanOptions::default(),
             &NoFilter,
         )?,
     );
@@ -88,13 +89,27 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     // while the query uses the composed lowercase form.
     print_hits(
         "café",
-        workspace.search(&index, "café", 5, SearchScorer::bm25(), &NoFilter)?,
+        workspace.search(
+            &index,
+            "café",
+            5,
+            SearchScorer::bm25(),
+            PlanOptions::default(),
+            &NoFilter,
+        )?,
     );
     // The indexed body contains uppercase `STRASSE`, while the query uses
     // lowercase `straße`. This field opts into full Unicode case folding.
     print_hits(
         "straße",
-        workspace.search(&index, "straße", 5, SearchScorer::bm25(), &NoFilter)?,
+        workspace.search(
+            &index,
+            "straße",
+            5,
+            SearchScorer::bm25(),
+            PlanOptions::default(),
+            &NoFilter,
+        )?,
     );
 
     Ok(())

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use leit_core::{FieldId, ScoredHit, TermId};
 use leit_index::{
     ExecutableIndex, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
-    SearchScorer, prepare_merge,
+    PlanOptions, SearchScorer, prepare_merge,
 };
 use leit_query::TermDictionary;
 use leit_text::{
@@ -166,7 +166,14 @@ fn search(
     scorer: SearchScorer,
 ) -> Vec<ScoredHit<u32>> {
     ExecutionWorkspace::new()
-        .search(index, query, limit, scorer, &NoFilter)
+        .search(
+            index,
+            query,
+            limit,
+            scorer,
+            PlanOptions::default(),
+            &NoFilter,
+        )
         .expect("oracle query executes")
 }
 

@@ -141,12 +141,14 @@ optimizations (cursor wiring, compressed postings) change them.
 
 ### Benchmark parameters
 
-Each iteration calls `workspace.search(index, query, limit, scorer, filter)`
+Each iteration calls
+`workspace.search(index, query, limit, scorer, PlanOptions::default(), filter)`
 with:
 
 - `limit`: 10 (top-10 retrieval)
 - `scorer`: `SearchScorer::bm25()` for single-term, multi-term, fielded, and
   AND queries; `SearchScorer::bm25f()` for the BM25F cross-field group
+- `options`: `PlanOptions::default()`
 - `filter`: `NoFilter`
 
 The index is built once outside the timed region using Criterion's setup
