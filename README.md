@@ -19,6 +19,9 @@ The current codebase implements a Phase 1 in-memory search stack with:
 The crate boundaries are intentional. Each crate owns one concern and exposes a
 small public surface.
 
+Try the [Beads search app](apps/leit-beads/README.md) for a read-only CLI that
+searches issue exports across repositories.
+
 ## `no_std` and `alloc`
 
 The library crates are designed to work in `no_std` environments. They enable

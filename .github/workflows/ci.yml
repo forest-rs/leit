@@ -24,6 +24,7 @@ env:
   # The wind tunnel crates depend on leit_index with the `std` feature and (for the
   # benchmark crates) on Criterion, so they are std-only just like leit_benchmark.
   RUST_STD_ONLY_PKGS: >-
+    --exclude leit-beads
     --exclude basic_search
     --exclude explicit_execution
     --exclude leit_index
@@ -35,6 +36,7 @@ env:
   # List of packages that don't support wasip1
   # proptest → rusty-fork → wait-timeout has no wasip1 backend
   RUST_NO_WASIP1_PKGS: >-
+    --exclude leit-beads
     --exclude leit_benchmark
     --exclude leit_integration_tests
     --exclude leit_wind_tunnel
@@ -42,6 +44,7 @@ env:
     --exclude leit_wind_tunnel_query
   # List of packages that don't support wasm32
   RUST_NO_WASM_PKGS: >-
+    --exclude leit-beads
     --exclude leit_benchmark
     --exclude leit_integration_tests
     --exclude leit_wind_tunnel

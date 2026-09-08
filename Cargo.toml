@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "apps/leit-beads",
     "crates/leit_benchmark",
     "crates/leit_collect",
     "crates/leit_core",
