@@ -7,7 +7,9 @@ use std::collections::BTreeSet;
 
 use leit_collect::TopKCollector;
 use leit_core::FieldId;
-use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, SearchScorer};
+use leit_index::{
+    ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
+};
 use leit_query::{ExecutionPlan, FeatureSet, QueryNode, QueryProgram, TermDictionary};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 use proptest::collection::vec;
@@ -64,7 +66,14 @@ fn build_index(corpus: &[(bool, bool, bool)]) -> InMemoryIndex {
 fn result_ids(index: &InMemoryIndex, query: &str, limit: usize) -> BTreeSet<u32> {
     let mut workspace = ExecutionWorkspace::new();
     workspace
-        .search(index, query, limit, SearchScorer::bm25(), &NoFilter)
+        .search(
+            index,
+            query,
+            limit,
+            SearchScorer::bm25(),
+            PlanOptions::default(),
+            &NoFilter,
+        )
         .expect("query should search")
         .into_iter()
         .map(|hit| hit.id)
@@ -74,7 +83,14 @@ fn result_ids(index: &InMemoryIndex, query: &str, limit: usize) -> BTreeSet<u32>
 fn results(index: &InMemoryIndex, query: &str, limit: usize) -> Vec<leit_core::ScoredHit<u32>> {
     let mut workspace = ExecutionWorkspace::new();
     workspace
-        .search(index, query, limit, SearchScorer::bm25(), &NoFilter)
+        .search(
+            index,
+            query,
+            limit,
+            SearchScorer::bm25(),
+            PlanOptions::default(),
+            &NoFilter,
+        )
         .expect("query should search")
 }
 
@@ -366,12 +382,12 @@ proptest! {
 
         let mut fresh_workspace = ExecutionWorkspace::new();
         let fresh = fresh_workspace
-            .search(&index, query, limit, SearchScorer::bm25(), &NoFilter)
+            .search(&index, query, limit, SearchScorer::bm25(), PlanOptions::default(), &NoFilter)
             .expect("fresh workspace search should succeed");
 
         let mut workspace = ExecutionWorkspace::new();
         let reused = workspace
-            .search(&index, query, limit, SearchScorer::bm25(), &NoFilter)
+            .search(&index, query, limit, SearchScorer::bm25(), PlanOptions::default(), &NoFilter)
             .expect("reused workspace search should succeed");
 
         prop_assert_eq!(reused, fresh);

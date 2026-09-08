@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use leit_core::{FieldId, ScoredHit, TermId};
 use leit_index::{
     CodecId, ExecutableIndex, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
-    SearchScorer, SegmentView, ValidationMode, prepare_merge, prepare_serialization,
+    PlanOptions, SearchScorer, SegmentView, ValidationMode, prepare_merge, prepare_serialization,
 };
 use leit_postings::codec::{BlockDeltaCodec, Codec, DeltaVarintCodec};
 use leit_text::{
@@ -220,7 +220,14 @@ fn search(
     scorer: SearchScorer,
 ) -> Vec<ScoredHit<u32>> {
     ExecutionWorkspace::new()
-        .search(index, query, limit, scorer, &NoFilter)
+        .search(
+            index,
+            query,
+            limit,
+            scorer,
+            PlanOptions::default(),
+            &NoFilter,
+        )
         .expect("fixture query should execute")
 }
 

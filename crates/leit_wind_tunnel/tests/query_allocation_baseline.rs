@@ -7,7 +7,9 @@ use std::alloc::System;
 
 use leit_collect::TopKCollector;
 use leit_core::{FieldId, ScoredHit};
-use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, SearchScorer};
+use leit_index::{
+    ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
+};
 use leit_query::ExecutionPlan;
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 use leit_wind_tunnel::allocation::{AllocationSnapshot, CountingAllocator};
@@ -60,7 +62,12 @@ fn deterministic_query_fixture() -> PreparedQueryFixture {
     let mut planning_workspace = ExecutionWorkspace::new();
     let query_fixture = QueryFixtures::multi_term_or();
     let plan = planning_workspace
-        .plan(&index, query_fixture.text, &NoFilter)
+        .plan(
+            &index,
+            query_fixture.text,
+            PlanOptions::default(),
+            &NoFilter,
+        )
         .expect("named query fixture should plan");
 
     let mut expected_workspace = ExecutionWorkspace::new();
