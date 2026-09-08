@@ -18,7 +18,9 @@
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use leit_core::FieldId;
-use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, SearchScorer};
+use leit_index::{
+    ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
+};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 use leit_wind_tunnel::{CorpusGenerator, QueryFixtures};
 
@@ -116,7 +118,14 @@ fn bench_queries(c: &mut Criterion) {
                 let mut workspace = ExecutionWorkspace::new();
                 b.iter(|| {
                     let hits = workspace
-                        .search(index, path.query, LIMIT, path.scorer, &NoFilter)
+                        .search(
+                            index,
+                            path.query,
+                            LIMIT,
+                            path.scorer,
+                            PlanOptions::default(),
+                            &NoFilter,
+                        )
                         .expect("search should succeed");
                     criterion::black_box(hits)
                 });

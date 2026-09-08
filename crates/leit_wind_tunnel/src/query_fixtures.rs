@@ -134,7 +134,9 @@ mod integration_tests {
     use super::*;
     use crate::corpus::CorpusGenerator;
     use leit_core::FieldId;
-    use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer};
+    use leit_index::{
+        ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
+    };
     use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
     #[test]
@@ -172,7 +174,14 @@ mod integration_tests {
         let mut workspace = ExecutionWorkspace::new();
         let fixture = QueryFixtures::single_term();
         let hits = workspace
-            .search(&index, fixture.text, 10, SearchScorer::bm25(), &NoFilter)
+            .search(
+                &index,
+                fixture.text,
+                10,
+                SearchScorer::bm25(),
+                PlanOptions::default(),
+                &NoFilter,
+            )
             .expect("search should succeed");
 
         assert!(!hits.is_empty(), "single_term fixture should produce hits");
@@ -213,7 +222,14 @@ mod integration_tests {
         let mut workspace = ExecutionWorkspace::new();
         let fixture = QueryFixtures::multi_term_or();
         let hits = workspace
-            .search(&index, fixture.text, 10, SearchScorer::bm25(), &NoFilter)
+            .search(
+                &index,
+                fixture.text,
+                10,
+                SearchScorer::bm25(),
+                PlanOptions::default(),
+                &NoFilter,
+            )
             .expect("search should succeed");
 
         assert!(
@@ -257,7 +273,14 @@ mod integration_tests {
         let mut workspace = ExecutionWorkspace::new();
         let fixture = QueryFixtures::multi_term_and();
         let hits = workspace
-            .search(&index, fixture.text, 10, SearchScorer::bm25(), &NoFilter)
+            .search(
+                &index,
+                fixture.text,
+                10,
+                SearchScorer::bm25(),
+                PlanOptions::default(),
+                &NoFilter,
+            )
             .expect("search should succeed");
 
         assert!(
@@ -301,7 +324,14 @@ mod integration_tests {
         let mut workspace = ExecutionWorkspace::new();
         let fixture = QueryFixtures::fielded_title();
         let hits = workspace
-            .search(&index, fixture.text, 10, SearchScorer::bm25(), &NoFilter)
+            .search(
+                &index,
+                fixture.text,
+                10,
+                SearchScorer::bm25(),
+                PlanOptions::default(),
+                &NoFilter,
+            )
             .expect("search should succeed");
 
         assert!(
@@ -345,7 +375,14 @@ mod integration_tests {
         let mut workspace = ExecutionWorkspace::new();
         let fixture = QueryFixtures::cross_field();
         let hits = workspace
-            .search(&index, fixture.text, 10, SearchScorer::bm25(), &NoFilter)
+            .search(
+                &index,
+                fixture.text,
+                10,
+                SearchScorer::bm25(),
+                PlanOptions::default(),
+                &NoFilter,
+            )
             .expect("search should succeed");
 
         assert!(!hits.is_empty(), "cross_field fixture should produce hits");

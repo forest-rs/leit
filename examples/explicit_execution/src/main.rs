@@ -6,7 +6,7 @@
 use leit_collect::{CountCollector, TopKCollector, collectors};
 use leit_core::{FieldId, ScoredHit};
 use leit_index::{
-    ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer,
+    ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
 };
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
     // Planning is a separate step, so callers can inspect or reuse the query
     // program before deciding how to execute it.
-    let plan = workspace.plan(&index, query, &NoFilter)?;
+    let plan = workspace.plan(&index, query, PlanOptions::default(), &NoFilter)?;
     println!("query: {query}");
     println!("plan:");
     println!("  nodes: {}", plan.program.node_count());

@@ -7,7 +7,9 @@
 
 use leit_collect::TopKCollector;
 use leit_core::{FieldId, QueryNodeId};
-use leit_index::{ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, SearchScorer};
+use leit_index::{
+    ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
+};
 use leit_query::{ExecutionPlan, FeatureSet, QueryNode, QueryProgram, TermDictionary};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
@@ -83,7 +85,7 @@ fn exercise_all_buffers(index: &InMemoryIndex, workspace: &mut ExecutionWorkspac
         .expect("composite plan should execute");
 
     let plan = workspace
-        .plan(index, "shared", &NoFilter)
+        .plan(index, "shared", PlanOptions::default(), &NoFilter)
         .expect("cross-field term should plan");
     workspace
         .execute(

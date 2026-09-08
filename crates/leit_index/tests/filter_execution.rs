@@ -7,7 +7,7 @@ use leit_collect::TopKCollector;
 use leit_core::{FieldId, FilterSlotId, QueryNodeId, Score, TermId};
 use leit_index::{
     ExecutionWorkspace, FilterEvaluator, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
-    SearchScorer,
+    PlanOptions, SearchScorer,
 };
 use leit_query::{
     ExecutionPlan, FeatureSet, FilterPredicate, FilterValue, QueryNode, QueryProgram,
@@ -103,10 +103,24 @@ fn accept_all_matches_unfiltered() {
     let mut ws_accept_all = ExecutionWorkspace::new();
 
     let no_filter_hits = ws_no_filter
-        .search(&index, "rust", 10, SearchScorer::bm25(), &NoFilter)
+        .search(
+            &index,
+            "rust",
+            10,
+            SearchScorer::bm25(),
+            PlanOptions::default(),
+            &NoFilter,
+        )
         .expect("NoFilter search should succeed");
     let accept_all_hits = ws_accept_all
-        .search(&index, "rust", 10, SearchScorer::bm25(), &AcceptAll)
+        .search(
+            &index,
+            "rust",
+            10,
+            SearchScorer::bm25(),
+            PlanOptions::default(),
+            &AcceptAll,
+        )
         .expect("AcceptAll search should succeed");
 
     assert_eq!(no_filter_hits, accept_all_hits);
@@ -119,7 +133,7 @@ fn reject_all_returns_empty() {
     let filter = RejectAll;
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "rust", &filter)
+        .plan(&index, "rust", PlanOptions::default(), &filter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(10);
     workspace
@@ -143,7 +157,7 @@ fn selective_filter_keeps_matching_docs() {
     let filter = AcceptOnly(vec![1]);
     let mut workspace = ExecutionWorkspace::new();
     let plan = workspace
-        .plan(&index, "rust", &filter)
+        .plan(&index, "rust", PlanOptions::default(), &filter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(10);
     workspace
@@ -171,7 +185,7 @@ fn plan_filtered_chains_external_filters() {
     // Two filter slots: slot 0 accepts {1,2}, slot 1 accepts {2,3}.
     // Only doc 2 matches "rust" AND passes both filters.
     let plan = workspace
-        .plan(&index, "rust", &filter)
+        .plan(&index, "rust", PlanOptions::default(), &filter)
         .expect("plan should succeed");
     let mut collector = TopKCollector::new(10);
     workspace

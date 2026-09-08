@@ -54,6 +54,52 @@ pub enum SearchScorer {
     Bm25F(Bm25FScorer),
 }
 
+/// Per-query planning controls consumed by an [`ExecutionWorkspace`] call.
+///
+/// Options are consumed by the call and are not retained by the workspace.
+/// [`Default::default`] leaves all fields at the unit BM25F weight. Field
+/// weights apply only to BM25F scoring of unqualified terms expanded across
+/// multiple default fields. Explicitly fielded terms and terms planned against
+/// a single default field use unit weight. Weights do not select a scorer or
+/// filter matching documents. A zero weight is valid and still permits
+/// matches.
+#[derive(Clone, Debug, Default)]
+pub struct PlanOptions {
+    default_field_weights: BTreeMap<FieldId, f32>,
+}
+
+impl PlanOptions {
+    /// Create planning options with unit BM25F weights for every field.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set BM25F weights for multi-field default-term expansions.
+    ///
+    /// Fields absent from the map use `1.0`. Planning rejects weights that are
+    /// not finite and non-negative; zero is valid. Explicitly fielded terms and
+    /// terms planned against a single default field do not use these weights.
+    #[must_use]
+    pub fn with_default_field_weights(
+        mut self,
+        default_field_weights: BTreeMap<FieldId, f32>,
+    ) -> Self {
+        self.default_field_weights = default_field_weights;
+        self
+    }
+
+    /// Return the configured BM25F weights for multi-field default-term expansions.
+    #[must_use]
+    pub const fn default_field_weights(&self) -> &BTreeMap<FieldId, f32> {
+        &self.default_field_weights
+    }
+
+    fn into_default_field_weights(self) -> BTreeMap<FieldId, f32> {
+        self.default_field_weights
+    }
+}
+
 impl SearchScorer {
     /// Create a BM25 scorer selection with default parameters.
     pub const fn bm25() -> Self {
@@ -257,10 +303,13 @@ impl ExecutionWorkspace {
     /// The filter's [`slots()`](FilterEvaluator::slots) are used to wrap the
     /// plan with [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes.
     /// Pass [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    /// `options` supplies per-query planning controls; see [`PlanOptions`] for
+    /// the exact scope of BM25F field weights.
     pub fn plan<I, F>(
         &mut self,
         index: &I,
         query: &str,
+        options: PlanOptions,
         filter: &F,
     ) -> Result<ExecutionPlan, IndexError>
     where
@@ -271,8 +320,10 @@ impl ExecutionWorkspace {
         let planner = Planner::new();
         self.default_fields.clear();
         index.for_each_default_field(&mut |field| self.default_fields.push(field));
-        let context =
-            PlanningContext::new(index, index).with_default_fields(self.default_fields.clone());
+        let context = PlanningContext::new(index, index)
+            .with_default_fields(self.default_fields.clone())
+            .try_with_field_weights(options.into_default_field_weights())
+            .map_err(IndexError::Query)?;
         let mut plan = planner
             .plan(query, &context, &mut self.planner)
             .map_err(IndexError::Query)?;
@@ -295,40 +346,12 @@ impl ExecutionWorkspace {
     /// Phrases approximate AND of
     /// their terms without enforcing order, slop, or a common field; see
     /// [`Planner::plan_program`].
+    /// `options` has the same semantics as in [`plan`](Self::plan).
     pub fn plan_program<I, F>(
         &mut self,
         index: &I,
         program: &UserQueryProgram,
-        filter: &F,
-    ) -> Result<ExecutionPlan, IndexError>
-    where
-        I: PlanningIndex,
-        F: FilterEvaluator<u32>,
-    {
-        self.clear();
-        let planner = Planner::new();
-        self.default_fields.clear();
-        index.for_each_default_field(&mut |field| self.default_fields.push(field));
-        let context =
-            PlanningContext::new(index, index).with_default_fields(self.default_fields.clone());
-        let mut plan = planner
-            .plan_program(program, &context, &mut self.planner)
-            .map_err(IndexError::Query)?;
-        for slot in filter.slots() {
-            plan.wrap_external_filter(*slot);
-        }
-        Ok(plan)
-    }
-
-    /// Plan a textual query with BM25F field-weight overrides.
-    ///
-    /// Fields absent from `field_weights` default to weight `1.0`. Invalid
-    /// weights are rejected during planning.
-    pub fn plan_with_field_weights<I, F>(
-        &mut self,
-        index: &I,
-        query: &str,
-        field_weights: BTreeMap<FieldId, f32>,
+        options: PlanOptions,
         filter: &F,
     ) -> Result<ExecutionPlan, IndexError>
     where
@@ -341,10 +364,10 @@ impl ExecutionWorkspace {
         index.for_each_default_field(&mut |field| self.default_fields.push(field));
         let context = PlanningContext::new(index, index)
             .with_default_fields(self.default_fields.clone())
-            .try_with_field_weights(field_weights)
+            .try_with_field_weights(options.into_default_field_weights())
             .map_err(IndexError::Query)?;
         let mut plan = planner
-            .plan(query, &context, &mut self.planner)
+            .plan_program(program, &context, &mut self.planner)
             .map_err(IndexError::Query)?;
         for slot in filter.slots() {
             plan.wrap_external_filter(*slot);
@@ -396,15 +419,17 @@ impl ExecutionWorkspace {
     /// plan with [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes,
     /// and the evaluator is dispatched for each candidate during execution.
     /// Pass [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    /// `options` has the same semantics as in [`plan`](Self::plan).
     pub fn search<F: FilterEvaluator<u32>>(
         &mut self,
         index: &InMemoryIndex,
         query: &str,
         limit: usize,
         scorer: SearchScorer,
+        options: PlanOptions,
         filter: &F,
     ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
-        let plan = self.plan(index, query, filter)?;
+        let plan = self.plan(index, query, options, filter)?;
         let mut collector = TopKCollector::new(limit);
         self.execute(index, &plan, Some(scorer), filter, &mut collector)?;
         Ok(collector.finish())
@@ -423,40 +448,19 @@ impl ExecutionWorkspace {
     /// Phrases approximate AND of their terms, without positional or same-field
     /// guarantees; see
     /// [`Planner::plan_program`].
+    /// `options` has the same semantics as in [`plan`](Self::plan).
     pub fn search_program<F: FilterEvaluator<u32>>(
         &mut self,
         index: &InMemoryIndex,
         program: &UserQueryProgram,
         limit: usize,
         scorer: SearchScorer,
+        options: PlanOptions,
         filter: &F,
     ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
-        let plan = self.plan_program(index, program, filter)?;
+        let plan = self.plan_program(index, program, options, filter)?;
         let mut collector = TopKCollector::new(limit);
         self.execute(index, &plan, Some(scorer), filter, &mut collector)?;
-        Ok(collector.finish())
-    }
-
-    /// Plan and execute a textual BM25F query with field-weight overrides.
-    ///
-    /// Fields absent from `field_weights` default to weight `1.0`.
-    pub fn search_bm25f_with_field_weights<F: FilterEvaluator<u32>>(
-        &mut self,
-        index: &InMemoryIndex,
-        query: &str,
-        limit: usize,
-        field_weights: BTreeMap<FieldId, f32>,
-        filter: &F,
-    ) -> Result<Vec<ScoredHit<u32>>, IndexError> {
-        let plan = self.plan_with_field_weights(index, query, field_weights, filter)?;
-        let mut collector = TopKCollector::new(limit);
-        self.execute(
-            index,
-            &plan,
-            Some(SearchScorer::bm25f()),
-            filter,
-            &mut collector,
-        )?;
         Ok(collector.finish())
     }
 }
@@ -511,7 +515,14 @@ mod typed_boundary_tests {
         for (text, count) in [("x:y", 2), ("(rust)", 1), ("OR", 1)] {
             let program = leit_query::term(text);
             let hits = workspace
-                .search_program(&index, &program, 10, SearchScorer::bm25(), &NoFilter)
+                .search_program(
+                    &index,
+                    &program,
+                    10,
+                    SearchScorer::bm25(),
+                    PlanOptions::default(),
+                    &NoFilter,
+                )
                 .unwrap();
             assert_eq!(hits.len(), count, "literal term {text}");
         }
@@ -538,7 +549,14 @@ mod typed_boundary_tests {
                     leit_query::term(text)
                 };
                 let hits = workspace
-                    .search_program(&index, &program, 10, SearchScorer::bm25(), &NoFilter)
+                    .search_program(
+                        &index,
+                        &program,
+                        10,
+                        SearchScorer::bm25(),
+                        PlanOptions::default(),
+                        &NoFilter,
+                    )
                     .unwrap();
                 assert_eq!(hits.len(), count, "term {text:?}, fielded={fielded}");
                 if count == 1 {
@@ -553,7 +571,11 @@ mod typed_boundary_tests {
         let index = index();
         let mut workspace = ExecutionWorkspace::new();
         let invalid = leit_query::term_with_field("x:y", "missing");
-        assert!(workspace.plan_program(&index, &invalid, &NoFilter).is_err());
+        assert!(
+            workspace
+                .plan_program(&index, &invalid, PlanOptions::default(), &NoFilter)
+                .is_err()
+        );
 
         for boolean in [false, true] {
             let mut builder = QueryBuilder::new();
@@ -565,12 +587,26 @@ mod typed_boundary_tests {
             let program = builder.build().unwrap();
             for scorer in [SearchScorer::bm25(), SearchScorer::bm25f()] {
                 let hits = workspace
-                    .search_program(&index, &program, 10, scorer, &OnlySecond)
+                    .search_program(
+                        &index,
+                        &program,
+                        10,
+                        scorer,
+                        PlanOptions::default(),
+                        &OnlySecond,
+                    )
                     .unwrap();
                 assert_eq!(hits.len(), 1);
                 assert_eq!(hits[0].id, 2);
                 let hits = workspace
-                    .search_program(&index, &program, 10, scorer, &NoFilter)
+                    .search_program(
+                        &index,
+                        &program,
+                        10,
+                        scorer,
+                        PlanOptions::default(),
+                        &NoFilter,
+                    )
                     .unwrap();
                 assert_eq!(hits.len(), 2, "filter state must not leak between queries");
             }
