@@ -38,19 +38,6 @@ pub(crate) struct BuildState {
     pub(crate) next_term_id: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct BlockConfig {
-    pub(crate) postings_block_size: usize,
-}
-
-impl Default for BlockConfig {
-    fn default() -> Self {
-        Self {
-            postings_block_size: crate::memory::DEFAULT_POSTINGS_BLOCK_SIZE,
-        }
-    }
-}
-
 impl BuildState {
     pub(crate) const fn new() -> Self {
         Self {
@@ -70,7 +57,6 @@ impl BuildState {
 #[derive(Debug)]
 pub struct InMemoryIndexBuilder {
     analyzers: FieldAnalyzers,
-    block_config: BlockConfig,
     state: BuildState,
 }
 
@@ -79,9 +65,6 @@ impl InMemoryIndexBuilder {
     pub const fn new(analyzers: FieldAnalyzers) -> Self {
         Self {
             analyzers,
-            block_config: BlockConfig {
-                postings_block_size: crate::memory::DEFAULT_POSTINGS_BLOCK_SIZE,
-            },
             state: BuildState::new(),
         }
     }
@@ -210,7 +193,6 @@ impl IndexBuilder for InMemoryIndexBuilder {
             &self.state.term_entries,
             &self.state.postings,
             &self.state.field_doc_lengths,
-            self.block_config.postings_block_size,
         );
         InMemoryIndex::new(
             self.analyzers,
@@ -230,6 +212,19 @@ pub(crate) fn build_posting_blocks(
     term_entries: &[TermEntry],
     postings: &BTreeMap<TermId, Vec<PostingEntry>>,
     field_doc_lengths: &BTreeMap<(u32, FieldId), u32>,
+) -> BTreeMap<TermId, Vec<PostingBlock>> {
+    build_posting_blocks_with_size(
+        term_entries,
+        postings,
+        field_doc_lengths,
+        crate::memory::DEFAULT_POSTINGS_BLOCK_SIZE,
+    )
+}
+
+pub(crate) fn build_posting_blocks_with_size(
+    term_entries: &[TermEntry],
+    postings: &BTreeMap<TermId, Vec<PostingEntry>>,
+    field_doc_lengths: &BTreeMap<(u32, FieldId), u32>,
     postings_block_size: usize,
 ) -> BTreeMap<TermId, Vec<PostingBlock>> {
     let mut blocks = BTreeMap::new();
@@ -246,11 +241,9 @@ pub(crate) fn build_posting_blocks(
         let mut start = 0;
         while start < term_postings.len() {
             let end = core::cmp::min(start.saturating_add(block_size), term_postings.len());
-            let mut end_doc = term_postings[start].doc_id;
             let mut max_term_freq = 0;
             let mut min_doc_length = u32::MAX;
             for posting in &term_postings[start..end] {
-                end_doc = posting.doc_id;
                 max_term_freq = max_term_freq.max(posting.term_freq);
                 min_doc_length = min_doc_length.min(
                     field_doc_lengths
@@ -260,9 +253,6 @@ pub(crate) fn build_posting_blocks(
                 );
             }
             term_blocks.push(PostingBlock {
-                start,
-                end,
-                end_doc,
                 max_term_freq,
                 min_doc_length: if min_doc_length == u32::MAX {
                     0

@@ -10,7 +10,7 @@ use leit_text::{AnalysisSchemaId, FieldAnalyzers};
 
 use crate::InMemoryIndex;
 use crate::builder::build_posting_blocks;
-use crate::memory::{DEFAULT_POSTINGS_BLOCK_SIZE, FieldMetadata, PostingEntry, TermEntry};
+use crate::memory::{FieldMetadata, PostingEntry, TermEntry};
 
 type DocumentRemap = Vec<(u32, u32)>;
 type TermRemap = Vec<(TermId, TermId)>;
@@ -395,12 +395,7 @@ impl PreparedMerge {
             "summed posting term frequencies must equal merged field token totals"
         );
 
-        let posting_blocks = build_posting_blocks(
-            &term_entries,
-            &postings,
-            &field_doc_lengths,
-            DEFAULT_POSTINGS_BLOCK_SIZE,
-        );
+        let posting_blocks = build_posting_blocks(&term_entries, &postings, &field_doc_lengths);
         let index = InMemoryIndex::new(
             analyzers,
             documents,

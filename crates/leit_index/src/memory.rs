@@ -28,6 +28,12 @@ use crate::index_surface::{
 use crate::search::{ExecutionStats, FieldHit, SearchScorer, score_bm25f_fields};
 use crate::segment_format::writer::write_segment;
 
+/// In-memory scoring-summary width.
+///
+/// This is intentionally smaller than the persisted codec block width: fine-grained summaries
+/// let top-k term searches reject noncompetitive postings before scoring them. Block ranges are
+/// derived from each summary's ordinal, so retaining this granularity does not require storing a
+/// start and end offset in every summary.
 pub(crate) const DEFAULT_POSTINGS_BLOCK_SIZE: usize = 2;
 
 #[derive(Clone, Debug)]
@@ -72,13 +78,19 @@ pub(crate) struct FieldMetadata {
     pub(crate) total_terms: u32,
 }
 
+/// Compact score bounds for one fixed-width in-memory postings block.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct PostingBlock {
-    pub(crate) start: usize,
-    pub(crate) end: usize,
-    pub(crate) end_doc: u32,
     pub(crate) max_term_freq: u32,
     pub(crate) min_doc_length: u32,
+}
+
+fn posting_block_range(block_index: usize, postings_len: usize) -> core::ops::Range<usize> {
+    let start = block_index.saturating_mul(DEFAULT_POSTINGS_BLOCK_SIZE);
+    let end = start
+        .saturating_add(DEFAULT_POSTINGS_BLOCK_SIZE)
+        .min(postings_len);
+    start..end
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -943,7 +955,7 @@ impl InMemoryIndex {
         let average = self.avg_field_doc_length(field);
         let doc_count = self.document_count();
         let doc_frequency = u32::try_from(postings.len()).unwrap_or(u32::MAX);
-        for block in blocks {
+        for (block_index, block) in blocks.iter().enumerate() {
             if boost >= 0.0
                 && let Some(threshold) = collectors.min_competitive_score()
                 && Self::block_upper_bound(
@@ -960,7 +972,7 @@ impl InMemoryIndex {
                 continue;
             }
             scratch.frame_pool[frame].hits.clear();
-            for posting in &postings[block.start..block.end] {
+            for posting in &postings[posting_block_range(block_index, postings.len())] {
                 stats.scored_postings = stats.scored_postings.saturating_add(1);
                 scratch.frame_pool[frame].hits.push(ScoredHit::new(
                     posting.doc_id,
@@ -1707,7 +1719,7 @@ impl InMemoryIndex {
         let doc_count = self.document_count();
         let doc_frequency = u32::try_from(postings.len()).unwrap_or(u32::MAX);
 
-        for block in blocks {
+        for (block_index, block) in blocks.iter().enumerate() {
             // Block-max pruning is only valid for non-negative boosts.
             // Negative boost inverts the upper bound, making it a lower bound.
             if allow_pruning
@@ -1730,7 +1742,8 @@ impl InMemoryIndex {
             }
 
             // Score the postings in this block via the cursor helper.
-            let mut cursor = MemPostingsCursor::new(&postings[block.start..block.end]);
+            let mut cursor =
+                MemPostingsCursor::new(&postings[posting_block_range(block_index, postings.len())]);
             self.score_via_cursor(
                 &mut cursor,
                 field,
@@ -1871,10 +1884,12 @@ impl ExecutableIndex for InMemoryIndex {
         let Some(blocks) = self.posting_blocks.get(&term) else {
             return;
         };
-        for block in blocks {
+        let postings_len = self.postings.get(&term).map_or(0, Vec::len);
+        for (block_index, block) in blocks.iter().enumerate() {
+            let range = posting_block_range(block_index, postings_len);
             f(PostingBlockView {
-                start: block.start,
-                end: block.end,
+                start: range.start,
+                end: range.end,
                 max_term_freq: block.max_term_freq,
                 min_doc_length: block.min_doc_length,
             });
@@ -1887,7 +1902,7 @@ mod tests {
     use super::*;
     use alloc::vec;
 
-    use crate::builder::{InMemoryIndexBuilder, build_posting_blocks};
+    use crate::builder::{InMemoryIndexBuilder, build_posting_blocks_with_size};
     use leit_text::{Analyzer, UnicodeNormalizer, WhitespaceTokenizer};
 
     fn execution_fixture() -> InMemoryIndex {
@@ -2164,17 +2179,18 @@ mod tests {
         ]);
 
         let singleton_blocks =
-            build_posting_blocks(&term_entries, &postings, &field_doc_lengths, 1);
-        let pair_blocks = build_posting_blocks(&term_entries, &postings, &field_doc_lengths, 2);
+            build_posting_blocks_with_size(&term_entries, &postings, &field_doc_lengths, 1);
+        let pair_blocks =
+            build_posting_blocks_with_size(&term_entries, &postings, &field_doc_lengths, 2);
 
         assert_eq!(singleton_blocks[&term_id].len(), 3);
         assert_eq!(pair_blocks[&term_id].len(), 2);
+        assert_eq!(size_of::<PostingBlock>(), 8);
+        assert_eq!(posting_block_range(0, 3), 0..2);
+        assert_eq!(posting_block_range(1, 3), 2..3);
         assert_eq!(
             pair_blocks[&term_id][0],
             PostingBlock {
-                start: 0,
-                end: 2,
-                end_doc: 2,
                 max_term_freq: 3,
                 min_doc_length: 5,
             }
