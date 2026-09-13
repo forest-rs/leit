@@ -1,7 +1,7 @@
 // Copyright 2026 the Leit Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -175,26 +175,23 @@ impl IndexBuilder for InMemoryIndexBuilder {
                 .ok_or(IndexError::ValueOutOfRange)?;
 
             for (term, term_freq) in frequencies {
-                let term_id = if let Some(existing) =
-                    self.state.terms_to_ids.get(&(field_id, term.clone()))
-                {
-                    *existing
-                } else {
-                    let term_id = TermId::new(self.state.next_term_id);
-                    self.state.next_term_id = self
-                        .state
-                        .next_term_id
-                        .checked_add(1)
-                        .ok_or(IndexError::ValueOutOfRange)?;
-                    self.state
-                        .terms_to_ids
-                        .insert((field_id, term.clone()), term_id);
-                    self.state.term_entries.push(TermEntry {
-                        field_id,
-                        term_id,
-                        term,
-                    });
-                    term_id
+                let term_id = match self.state.terms_to_ids.entry((field_id, term)) {
+                    Entry::Occupied(entry) => *entry.get(),
+                    Entry::Vacant(entry) => {
+                        let term_id = TermId::new(self.state.next_term_id);
+                        self.state.next_term_id = self
+                            .state
+                            .next_term_id
+                            .checked_add(1)
+                            .ok_or(IndexError::ValueOutOfRange)?;
+                        self.state.term_entries.push(TermEntry {
+                            field_id,
+                            term_id,
+                            term: entry.key().1.clone(),
+                        });
+                        entry.insert(term_id);
+                        term_id
+                    }
                 };
 
                 self.state
