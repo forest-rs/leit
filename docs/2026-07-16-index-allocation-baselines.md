@@ -17,6 +17,6 @@ Transient allocation and deallocation intrinsic to `index_document` and
 These observations establish no latency or allocation regression threshold.
 
 ```text
-allocation-baseline fixture=index-100 phase=insertion alloc_calls=21907 realloc_calls=964 dealloc_calls=19633 allocated_bytes=2061052 released_bytes=1883646
-allocation-baseline fixture=index-100 phase=finalization alloc_calls=785 realloc_calls=203 dealloc_calls=0 allocated_bytes=224272 released_bytes=50432
+allocation-baseline fixture=index-100 phase=insertion alloc_calls=21907 realloc_calls=964 dealloc_calls=19633 allocated_bytes=2061052 released_bytes=1883646 outstanding_bytes=177406 peak_outstanding_bytes=187621
+allocation-baseline fixture=index-100 phase=finalization alloc_calls=785 realloc_calls=203 dealloc_calls=0 allocated_bytes=224272 released_bytes=50432 outstanding_bytes=173840 peak_outstanding_bytes=173840
 ```

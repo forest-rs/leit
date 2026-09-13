@@ -59,6 +59,10 @@ tests are already set up so later phases can swap in more storage backends,
 analysis strategies, and scoring methods without collapsing the crate
 boundaries.
 
+The [release-scale performance baseline](docs/2026-09-13-release-scale-performance.md)
+records current indexing, query-latency, allocation, and work-unit behavior
+through 100k deterministic documents, together with the limits of those claims.
+
 ## Verification
 
 From the workspace root:

@@ -139,6 +139,8 @@ fn counting_is_disabled_between_leases_and_each_lease_resets_counters() {
             dealloc_calls: 1,
             allocated_bytes: 7,
             released_bytes: 7,
+            outstanding_bytes: 0,
+            peak_outstanding_bytes: 7,
         }
     );
 
@@ -149,6 +151,27 @@ fn counting_is_disabled_between_leases_and_each_lease_resets_counters() {
         GLOBAL.try_start_counting().expect("reset lease").finish(),
         AllocationSnapshot::default()
     );
+}
+
+#[test]
+fn snapshot_reports_live_and_peak_counted_bytes() {
+    let _serial = serial_test();
+    let lease = GLOBAL.try_start_counting().expect("lease");
+    let pointer = direct_allocator::alloc(&GLOBAL, 13);
+    assert!(!pointer.is_null());
+    assert_eq!(
+        lease.finish(),
+        AllocationSnapshot {
+            alloc_calls: 1,
+            realloc_calls: 0,
+            dealloc_calls: 0,
+            allocated_bytes: 13,
+            released_bytes: 0,
+            outstanding_bytes: 13,
+            peak_outstanding_bytes: 13,
+        }
+    );
+    direct_allocator::dealloc(&GLOBAL, pointer, 13);
 }
 
 #[test]
@@ -170,6 +193,8 @@ fn successful_reallocation_counts_full_new_and_old_sizes() {
             dealloc_calls: 1,
             allocated_bytes: 16,
             released_bytes: 24,
+            outstanding_bytes: 0,
+            peak_outstanding_bytes: 16,
         }
     );
 }

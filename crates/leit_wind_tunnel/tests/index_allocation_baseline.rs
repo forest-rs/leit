@@ -52,12 +52,15 @@ fn assert_nonempty_phase(phase: &str, snapshot: AllocationSnapshot) {
 fn report(phase: &str, snapshot: AllocationSnapshot) {
     println!(
         "allocation-baseline fixture={FIXTURE_NAME} phase={phase} alloc_calls={} \
-         realloc_calls={} dealloc_calls={} allocated_bytes={} released_bytes={}",
+         realloc_calls={} dealloc_calls={} allocated_bytes={} released_bytes={} \
+         outstanding_bytes={} peak_outstanding_bytes={}",
         snapshot.alloc_calls,
         snapshot.realloc_calls,
         snapshot.dealloc_calls,
         snapshot.allocated_bytes,
         snapshot.released_bytes,
+        snapshot.outstanding_bytes,
+        snapshot.peak_outstanding_bytes,
     );
 }
 

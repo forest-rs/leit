@@ -680,6 +680,7 @@ name = "leit_wind_tunnel_query"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "leit_collect",
  "leit_core",
  "leit_index",
  "leit_text",

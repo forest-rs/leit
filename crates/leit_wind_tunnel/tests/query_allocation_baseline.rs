@@ -197,7 +197,8 @@ fn report_snapshot(
 ) {
     println!(
         "query-allocation-baseline fixture={} corpus_docs={} path={} n={} alloc_calls={} \
-         realloc_calls={} allocation_ops={} dealloc_calls={} allocated_bytes={} released_bytes={}",
+         realloc_calls={} allocation_ops={} dealloc_calls={} allocated_bytes={} released_bytes={} \
+         outstanding_bytes={} peak_outstanding_bytes={}",
         fixture.name,
         CORPUS_DOCUMENT_COUNT,
         path,
@@ -208,6 +209,8 @@ fn report_snapshot(
         snapshot.dealloc_calls,
         snapshot.allocated_bytes,
         snapshot.released_bytes,
+        snapshot.outstanding_bytes,
+        snapshot.peak_outstanding_bytes,
     );
 }
 

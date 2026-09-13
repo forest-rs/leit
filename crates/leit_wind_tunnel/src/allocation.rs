@@ -31,6 +31,8 @@ struct Counters {
     dealloc_calls: AtomicU64,
     allocated_bytes: AtomicU64,
     released_bytes: AtomicU64,
+    outstanding_bytes: AtomicU64,
+    peak_outstanding_bytes: AtomicU64,
 }
 
 impl Counters {
@@ -41,6 +43,8 @@ impl Counters {
             dealloc_calls: AtomicU64::new(0),
             allocated_bytes: AtomicU64::new(0),
             released_bytes: AtomicU64::new(0),
+            outstanding_bytes: AtomicU64::new(0),
+            peak_outstanding_bytes: AtomicU64::new(0),
         }
     }
 
@@ -50,6 +54,8 @@ impl Counters {
         self.dealloc_calls.store(0, Ordering::Relaxed);
         self.allocated_bytes.store(0, Ordering::Relaxed);
         self.released_bytes.store(0, Ordering::Relaxed);
+        self.outstanding_bytes.store(0, Ordering::Relaxed);
+        self.peak_outstanding_bytes.store(0, Ordering::Relaxed);
     }
 
     fn snapshot(&self) -> AllocationSnapshot {
@@ -59,7 +65,32 @@ impl Counters {
             dealloc_calls: self.dealloc_calls.load(Ordering::Relaxed),
             allocated_bytes: self.allocated_bytes.load(Ordering::Relaxed),
             released_bytes: self.released_bytes.load(Ordering::Relaxed),
+            outstanding_bytes: self.outstanding_bytes.load(Ordering::Relaxed),
+            peak_outstanding_bytes: self.peak_outstanding_bytes.load(Ordering::Relaxed),
         }
+    }
+
+    fn add_outstanding(&self, size: u64) {
+        let new = self
+            .outstanding_bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_add(size))
+            })
+            .unwrap_or_else(|current| current)
+            .saturating_add(size);
+        let _ = self.peak_outstanding_bytes.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |peak| (new > peak).then_some(new),
+        );
+    }
+
+    fn release_outstanding(&self, size: u64) {
+        let _ =
+            self.outstanding_bytes
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                    Some(current.saturating_sub(size))
+                });
     }
 }
 
@@ -129,6 +160,17 @@ pub struct AllocationSnapshot {
     pub allocated_bytes: u64,
     /// Bytes released by deallocations and successful reallocations.
     pub released_bytes: u64,
+    /// Counted bytes still outstanding when the measurement window ended.
+    ///
+    /// This is exact when every allocation owned at the end of the window was
+    /// created inside that window. Deallocating allocations created before the
+    /// window saturates this counter at zero.
+    pub outstanding_bytes: u64,
+    /// Highest counted outstanding-byte balance observed during the window.
+    ///
+    /// Use a whole-operation window, including owner construction, when this
+    /// value is intended to approximate the operation's peak live heap.
+    pub peak_outstanding_bytes: u64,
 }
 
 /// Failure to acquire a scoped allocation counter.
@@ -224,6 +266,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for CountingAllocator<A> {
             self.counters
                 .allocated_bytes
                 .fetch_add(bytes(layout.size()), Ordering::Relaxed);
+            self.counters.add_outstanding(bytes(layout.size()));
         }
         pointer
     }
@@ -236,6 +279,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for CountingAllocator<A> {
             self.counters
                 .released_bytes
                 .fetch_add(bytes(layout.size()), Ordering::Relaxed);
+            self.counters.release_outstanding(bytes(layout.size()));
         }
     }
 
@@ -251,6 +295,8 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for CountingAllocator<A> {
             self.counters
                 .released_bytes
                 .fetch_add(bytes(layout.size()), Ordering::Relaxed);
+            self.counters.release_outstanding(bytes(layout.size()));
+            self.counters.add_outstanding(bytes(new_size));
         }
         new_pointer
     }

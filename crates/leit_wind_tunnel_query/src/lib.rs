@@ -4,9 +4,11 @@
 //! Criterion query-latency benchmarks for the Leit wind tunnel.
 //!
 //! This crate intentionally has no library surface of its own — all logic lives
-//! in `benches/query_latency.rs`. It exists solely to isolate the Criterion
-//! dev-dependency from the primary workspace crates (see STORY-0103). Run the
-//! benchmarks with `cargo bench -p leit_wind_tunnel_query`.
+//! in its benchmark targets. It exists solely to isolate performance tooling
+//! from the primary workspace crates. Run Criterion latency measurements with
+//! `cargo bench -p leit_wind_tunnel_query --bench query_latency` and allocation
+//! measurements with
+//! `cargo bench -p leit_wind_tunnel_query --bench query_allocations`.
 
 #![warn(
     missing_debug_implementations,

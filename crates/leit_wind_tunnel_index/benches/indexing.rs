@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Indexing-throughput benchmarks: build an `InMemoryIndex` from a deterministic
-//! synthetic corpus at 1K and 10K document sizes.
+//! synthetic corpus at 1K, 10K, and 100K document sizes.
 //!
 //! Run with `cargo bench -p leit_wind_tunnel_index`.
 
@@ -63,8 +63,13 @@ fn build_index(corpus: &[GeneratedDoc]) {
 fn bench_indexing(c: &mut Criterion) {
     let generator = CorpusGenerator::new(SEED);
     let mut group = c.benchmark_group("index_build");
+    group.sample_size(10);
 
-    for (label, count) in [("1k", 1_000_u32), ("10k", 10_000_u32)] {
+    for (label, count) in [
+        ("1k", 1_000_u32),
+        ("10k", 10_000_u32),
+        ("100k", 100_000_u32),
+    ] {
         let corpus = generator.generate(count);
         group.throughput(Throughput::Elements(u64::from(count)));
         group.bench_with_input(BenchmarkId::from_parameter(label), &corpus, |b, corpus| {
