@@ -338,8 +338,12 @@ impl Analyzer {
         tokens
             .into_iter()
             .map(|token| {
-                let mut normalized = token.text.to_string();
-                for normalizer in &self.normalizers {
+                let mut normalizers = self.normalizers.iter();
+                let mut normalized = normalizers.next().map_or_else(
+                    || token.text.to_string(),
+                    |normalizer| normalizer.normalize(token.text),
+                );
+                for normalizer in normalizers {
                     normalized = normalizer.normalize(&normalized);
                 }
                 (token, normalized)
@@ -590,5 +594,27 @@ mod tests {
         assert_eq!(result[1].0.text, "World");
         assert_eq!(result[1].1, "world");
         assert_eq!(result[1].0.position, 1);
+    }
+
+    #[test]
+    fn analyzer_without_normalizers_owns_original_token_text() {
+        let analyzer = Analyzer::new(WhitespaceTokenizer::new());
+
+        let result = analyzer.analyze("Hello World");
+
+        assert_eq!(result[0].1, "Hello");
+        assert_eq!(result[1].1, "World");
+    }
+
+    #[test]
+    fn analyzer_applies_each_normalizer_in_order() {
+        let analyzer = Analyzer::new(WhitespaceTokenizer::new())
+            .with_normalizer(UnicodeNormalizer::new())
+            .with_normalizer(UnicodeNormalizer::new());
+
+        let result = analyzer.analyze("Hello World");
+
+        assert_eq!(result[0].1, "hello");
+        assert_eq!(result[1].1, "world");
     }
 }
