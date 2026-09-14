@@ -14,6 +14,45 @@
 //!
 //! The borrowed-open seam is the important extension point for future
 //! acquisition crates such as mmap-backed segment loaders.
+//!
+//! # Quick start
+//!
+//! Configure an analyzer for each indexed field, register the names used by
+//! textual queries, build the immutable in-memory index, and search it:
+//!
+//! ```
+//! use leit_core::FieldId;
+//! use leit_index::{
+//!     ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
+//! };
+//! use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
+//!
+//! # fn main() -> Result<(), leit_index::IndexError> {
+//! let title = FieldId::new(1);
+//! let mut analyzers = FieldAnalyzers::new();
+//! analyzers.set(
+//!     title,
+//!     Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
+//! );
+//!
+//! let mut builder = InMemoryIndexBuilder::new(analyzers);
+//! builder.register_field_alias(title, "title");
+//! builder.index_document(1, &[(title, "Rust retrieval")])?;
+//! let index = builder.build_index();
+//!
+//! let mut workspace = ExecutionWorkspace::new();
+//! let hits = workspace.search(
+//!     &index,
+//!     "title:rust",
+//!     10,
+//!     SearchScorer::bm25(),
+//!     PlanOptions::default(),
+//!     &NoFilter,
+//! )?;
+//! assert_eq!(hits.len(), 1);
+//! # Ok(())
+//! # }
+//! ```
 
 extern crate alloc;
 

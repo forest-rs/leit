@@ -156,7 +156,9 @@ fn legacy_writer_remains_kind_zero_raw_without_codec_marker() {
         assert_eq!(len, doc_freq * 8);
         let payload = data.range(offset, len).expect("payload range should exist");
         let actual: Vec<_> = payload
-            .chunks_exact(8)
+            .as_chunks::<8>()
+            .0
+            .iter()
             .map(|raw| {
                 let doc = u32::from_le_bytes(raw[0..4].try_into().expect("doc bytes"));
                 let tf = u32::from_le_bytes(raw[4..8].try_into().expect("tf bytes"));
