@@ -12,7 +12,6 @@ esac
 mise exec -- rustup target add "$target" 2>/dev/null || true
 
 mise exec -- cargo hack clippy \
-    --exclude leit_index \
     --exclude leit_benchmark \
     --exclude leit_integration_tests \
     --exclude basic_search \
@@ -21,6 +20,6 @@ mise exec -- cargo hack clippy \
     --exclude leit_wind_tunnel_index \
     --exclude leit_wind_tunnel_query \
     --workspace --locked --optional-deps --each-feature \
-    --exclude-features std,default,icu \
+    --exclude-features std,default,icu,mmap \
     --target "$target" \
     -- -D warnings
