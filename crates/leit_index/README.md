@@ -1,6 +1,6 @@
 # leit-index
 
-Phase 1 indexing and segment access for Leit.
+In-memory indexing and segment access for Leit.
 
 This crate provides:
 
@@ -14,7 +14,7 @@ The public surface stays small. Query planning lives in `leit-query`, but most
 callers can stay at the `leit-index` layer by planning and executing through an
 `ExecutionWorkspace`.
 
-Typical Phase 1 flow:
+Typical flow:
 
 ```rust
 use leit_collect::{collectors, CountCollector, TopKCollector};
@@ -37,6 +37,8 @@ workspace.execute(
     &NoFilter,
     &mut collectors,
 )?;
+let hits = top_k.finish();
+let count = count.finish();
 ```
 
 `ExecutionWorkspace` accepts one `PlanOptions` value on every planning and
@@ -75,8 +77,8 @@ default. The `mmap` feature adds memory-mapped segment access and requires
 `InMemoryIndex` is immutable after construction. `ExecutionWorkspace` currently
 executes plans only against `InMemoryIndex`; `SegmentIndex` is a thin wrapper
 around `SegmentView` while the serialized format is still gaining the metadata
-needed for direct execution. There is no durable update or delete lifecycle in
-Phase 1.
+needed for direct execution. There is no durable update or delete lifecycle
+yet.
 
 ## Segment Format
 
