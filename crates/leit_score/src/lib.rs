@@ -24,7 +24,7 @@ use alloc::vec::Vec;
 )]
 use core_maths::CoreFloat as _;
 
-use leit_core::Score;
+use leit_common::Score;
 
 /// Trait for scoring documents.
 ///
@@ -273,7 +273,7 @@ impl Scorer for Bm25Scorer {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FieldStats {
     /// Field identifier.
-    pub field_id: leit_core::FieldId,
+    pub field_id: leit_common::FieldId,
     /// Term frequency in this field.
     pub term_frequency: u32,
     /// Length of this field.
@@ -432,13 +432,13 @@ mod tests {
         let scorer = Bm25FScorer::new();
         let fields = [
             FieldStats {
-                field_id: leit_core::FieldId::new(0),
+                field_id: leit_common::FieldId::new(0),
                 term_frequency: 2,
                 field_length: 50,
                 weight: 2.0,
             },
             FieldStats {
-                field_id: leit_core::FieldId::new(1),
+                field_id: leit_common::FieldId::new(1),
                 term_frequency: 1,
                 field_length: 100,
                 weight: 1.0,
@@ -485,7 +485,7 @@ mod tests {
     fn test_bm25f_zero_avg_doc_length_returns_zero() {
         let scorer = Bm25FScorer::new();
         let fields = [FieldStats {
-            field_id: leit_core::FieldId::new(0),
+            field_id: leit_common::FieldId::new(0),
             term_frequency: 2,
             field_length: 50,
             weight: 1.0,

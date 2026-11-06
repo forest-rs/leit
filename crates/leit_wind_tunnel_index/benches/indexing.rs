@@ -12,7 +12,7 @@
 )]
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::InMemoryIndexBuilder;
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 use leit_wind_tunnel::{CorpusGenerator, corpus::GeneratedDoc};

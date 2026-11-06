@@ -1,6 +1,6 @@
-# leit-core
+# leit-common
 
-Core types and traits shared across the Leit workspace.
+Common types and traits shared across the Leit workspace.
 
 This crate provides:
 

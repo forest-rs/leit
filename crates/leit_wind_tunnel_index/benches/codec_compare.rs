@@ -17,7 +17,7 @@
 )]
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use leit_core::{FieldId, SegmentLocalDocId, TermFreq};
+use leit_common::{FieldId, SegmentLocalDocId, TermFreq};
 use leit_index::InMemoryIndexBuilder;
 use leit_postings::codec::{BlockDeltaCodec, Codec, DeltaVarintCodec};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};

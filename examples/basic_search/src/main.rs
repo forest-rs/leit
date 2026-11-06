@@ -3,7 +3,7 @@
 
 //! Minimal end-to-end example for the Leit stack.
 
-use leit_core::{FieldId, ScoredHit};
+use leit_common::{FieldId, ScoredHit};
 use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer};
 use leit_text::{Analyzer, CaseMapping, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 

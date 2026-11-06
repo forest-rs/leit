@@ -3,7 +3,7 @@
 
 //! Contract tests for exact, codec-selected prepared segment serialization.
 
-use leit_core::{FieldId, SegmentLocalDocId, TermFreq, TermId};
+use leit_common::{FieldId, SegmentLocalDocId, TermFreq, TermId};
 use leit_index::{
     CodecId, ExecutableIndex, InMemoryIndexBuilder, MergedIndex, SegmentView, prepare_merge,
     prepare_serialization,

@@ -25,7 +25,7 @@ use core::ops::Range;
 use icu_casemap::CaseMapper;
 use icu_locale_core::LanguageIdentifier;
 use icu_normalizer::ComposingNormalizer;
-use leit_core::FieldId;
+use leit_common::FieldId;
 
 /// A token produced by tokenization.
 #[derive(Clone, Debug, PartialEq, Eq)]

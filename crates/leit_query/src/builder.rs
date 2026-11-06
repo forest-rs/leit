@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use leit_core::QueryNodeId;
+use leit_common::QueryNodeId;
 
 use crate::types::QueryArena;
 use crate::types::{BooleanOp, UserQueryNode, UserQueryProgram};

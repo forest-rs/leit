@@ -6,7 +6,7 @@
 #![cfg(feature = "bench-internals")]
 
 use leit_collect::TopKCollector;
-use leit_core::{FieldId, QueryNodeId};
+use leit_common::{FieldId, QueryNodeId};
 use leit_index::{
     ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
 };

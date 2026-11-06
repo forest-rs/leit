@@ -7,7 +7,7 @@
 //! same field resolution, default-field expansion, boost composition, and the
 //! same `max_depth` / `max_nodes` guards.
 
-use leit_core::{FieldId, QueryNodeId, TermId};
+use leit_common::{FieldId, QueryNodeId, TermId};
 use leit_query::{
     FieldRegistry, Planner, PlannerScratch, PlanningContext, QueryBuilder, QueryError, QueryNode,
     TermDictionary, UserQueryProgram,

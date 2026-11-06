@@ -7,7 +7,7 @@
 //! handoff docs and exposed by the current workspace crates.
 
 use leit_collect::{Collector, CountCollector, TopKCollector};
-use leit_core::{EntityId, Score, ScoredHit, ScratchSpace, Workspace};
+use leit_common::{EntityId, Score, ScoredHit, ScratchSpace, Workspace};
 use leit_fusion::{RankedResult, fuse_default};
 use leit_index::{
     ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer, SegmentView,
@@ -262,13 +262,13 @@ fn test_bm25f_known_answer() {
     let scorer = Bm25FScorer::new();
     let fields = [
         FieldStats {
-            field_id: leit_core::FieldId::new(0),
+            field_id: leit_common::FieldId::new(0),
             term_frequency: 2,
             field_length: 50,
             weight: 2.0,
         },
         FieldStats {
-            field_id: leit_core::FieldId::new(1),
+            field_id: leit_common::FieldId::new(1),
             term_frequency: 1,
             field_length: 100,
             weight: 1.0,
@@ -286,13 +286,13 @@ fn test_bm25f_zero_weighted_tf() {
     let scorer = Bm25FScorer::new();
     let fields = [
         FieldStats {
-            field_id: leit_core::FieldId::new(0),
+            field_id: leit_common::FieldId::new(0),
             term_frequency: 0,
             field_length: 50,
             weight: 2.0,
         },
         FieldStats {
-            field_id: leit_core::FieldId::new(1),
+            field_id: leit_common::FieldId::new(1),
             term_frequency: 0,
             field_length: 100,
             weight: 1.0,
@@ -340,7 +340,7 @@ proptest! {
             .into_iter()
             .enumerate()
             .map(|(index, (term_frequency, field_length, weight))| FieldStats {
-                field_id: leit_core::FieldId::new(
+                field_id: leit_common::FieldId::new(
                     u32::try_from(index).expect("test field index should fit in u32")
                 ),
                 term_frequency,
@@ -434,10 +434,10 @@ fn clear_workspace(workspace: &mut impl Workspace) {
 struct TestFieldRegistry;
 
 impl FieldRegistry for TestFieldRegistry {
-    fn resolve_field(&self, field: &str) -> Option<leit_core::FieldId> {
+    fn resolve_field(&self, field: &str) -> Option<leit_common::FieldId> {
         match field {
-            "title" => Some(leit_core::FieldId::new(1)),
-            "body" => Some(leit_core::FieldId::new(2)),
+            "title" => Some(leit_common::FieldId::new(1)),
+            "body" => Some(leit_common::FieldId::new(2)),
             _ => None,
         }
     }
@@ -447,10 +447,10 @@ impl FieldRegistry for TestFieldRegistry {
 struct TestDictionary;
 
 impl TermDictionary for TestDictionary {
-    fn resolve_term(&self, field: leit_core::FieldId, term: &str) -> Option<leit_core::TermId> {
+    fn resolve_term(&self, field: leit_common::FieldId, term: &str) -> Option<leit_common::TermId> {
         match (field.as_u32(), term) {
-            (1, "rust") => Some(leit_core::TermId::new(10)),
-            (2, "retrieval") => Some(leit_core::TermId::new(20)),
+            (1, "rust") => Some(leit_common::TermId::new(10)),
+            (2, "retrieval") => Some(leit_common::TermId::new(20)),
             _ => None,
         }
     }
@@ -499,7 +499,7 @@ fn test_query_execution() {
     let fields = TestFieldRegistry;
     let mut scratch = PlannerScratch::new();
     let context = PlanningContext::new(&dictionary, &fields)
-        .with_default_field(leit_core::FieldId::new(2))
+        .with_default_field(leit_common::FieldId::new(2))
         .with_default_boost(1.0);
 
     let plan = planner
@@ -523,11 +523,11 @@ fn test_query_execution() {
 fn test_inverted_index_build() {
     let mut analyzers = FieldAnalyzers::new();
     analyzers.set(
-        leit_core::FieldId::new(1),
+        leit_common::FieldId::new(1),
         Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
     );
     analyzers.set(
-        leit_core::FieldId::new(2),
+        leit_common::FieldId::new(2),
         Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
     );
 
@@ -536,8 +536,8 @@ fn test_inverted_index_build() {
         .index_document(
             1,
             &[
-                (leit_core::FieldId::new(1), "Rust Search"),
-                (leit_core::FieldId::new(2), "Retrieval systems in rust"),
+                (leit_common::FieldId::new(1), "Rust Search"),
+                (leit_common::FieldId::new(2), "Retrieval systems in rust"),
             ],
         )
         .expect("document 1 should index");
@@ -545,8 +545,8 @@ fn test_inverted_index_build() {
         .index_document(
             2,
             &[
-                (leit_core::FieldId::new(1), "Search Engines"),
-                (leit_core::FieldId::new(2), "Rust indexing pipeline"),
+                (leit_common::FieldId::new(1), "Search Engines"),
+                (leit_common::FieldId::new(2), "Rust indexing pipeline"),
             ],
         )
         .expect("document 2 should index");
@@ -579,7 +579,7 @@ fn test_text_analysis() {
 
 #[test]
 fn test_postings_lists() {
-    let mut list = leit_postings::PostingsList::<u32>::new(leit_core::TermId::new(7));
+    let mut list = leit_postings::PostingsList::<u32>::new(leit_common::TermId::new(7));
     list.add(leit_postings::Posting {
         doc_id: 3,
         term_freq: 2,
@@ -590,7 +590,7 @@ fn test_postings_lists() {
     postings.add(list);
 
     let mut cursor = postings
-        .cursor(leit_core::TermId::new(7))
+        .cursor(leit_common::TermId::new(7))
         .expect("term cursor should exist");
 
     assert_eq!(cursor.doc(), Some(3));
@@ -603,22 +603,22 @@ fn test_e2e_search_pipeline() {
     let mut analyzers = FieldAnalyzers::new();
     let analyzer =
         Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new());
-    analyzers.set(leit_core::FieldId::new(1), analyzer);
+    analyzers.set(leit_common::FieldId::new(1), analyzer);
     analyzers.set(
-        leit_core::FieldId::new(2),
+        leit_common::FieldId::new(2),
         Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
     );
 
     let mut builder = InMemoryIndexBuilder::new(analyzers);
-    builder.register_field_alias(leit_core::FieldId::new(1), "title");
-    builder.register_field_alias(leit_core::FieldId::new(2), "body");
+    builder.register_field_alias(leit_common::FieldId::new(1), "title");
+    builder.register_field_alias(leit_common::FieldId::new(2), "body");
     builder
         .index_document(
             1,
             &[
-                (leit_core::FieldId::new(1), "Rust Programming"),
+                (leit_common::FieldId::new(1), "Rust Programming"),
                 (
-                    leit_core::FieldId::new(2),
+                    leit_common::FieldId::new(2),
                     "Rust is a systems programming language",
                 ),
             ],
@@ -628,9 +628,9 @@ fn test_e2e_search_pipeline() {
         .index_document(
             2,
             &[
-                (leit_core::FieldId::new(1), "Information Retrieval"),
+                (leit_common::FieldId::new(1), "Information Retrieval"),
                 (
-                    leit_core::FieldId::new(2),
+                    leit_common::FieldId::new(2),
                     "Search engines use inverted indices for retrieval",
                 ),
             ],
@@ -640,8 +640,8 @@ fn test_e2e_search_pipeline() {
         .index_document(
             3,
             &[
-                (leit_core::FieldId::new(1), "Cooking Notes"),
-                (leit_core::FieldId::new(2), "Recipes and ingredients"),
+                (leit_common::FieldId::new(1), "Cooking Notes"),
+                (leit_common::FieldId::new(2), "Recipes and ingredients"),
             ],
         )
         .expect("document 3 should index");
@@ -680,24 +680,24 @@ fn test_e2e_search_pipeline() {
 fn test_e2e_search_pipeline_bm25f() {
     let mut analyzers = FieldAnalyzers::new();
     analyzers.set(
-        leit_core::FieldId::new(1),
+        leit_common::FieldId::new(1),
         Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
     );
     analyzers.set(
-        leit_core::FieldId::new(2),
+        leit_common::FieldId::new(2),
         Analyzer::new(WhitespaceTokenizer::new()).with_normalizer(UnicodeNormalizer::new()),
     );
 
     let mut builder = InMemoryIndexBuilder::new(analyzers);
-    builder.register_field_alias(leit_core::FieldId::new(1), "title");
-    builder.register_field_alias(leit_core::FieldId::new(2), "body");
+    builder.register_field_alias(leit_common::FieldId::new(1), "title");
+    builder.register_field_alias(leit_common::FieldId::new(2), "body");
     builder
         .index_document(
             1,
             &[
-                (leit_core::FieldId::new(1), "Rust Programming"),
+                (leit_common::FieldId::new(1), "Rust Programming"),
                 (
-                    leit_core::FieldId::new(2),
+                    leit_common::FieldId::new(2),
                     "Rust is a systems programming language",
                 ),
             ],
@@ -707,9 +707,9 @@ fn test_e2e_search_pipeline_bm25f() {
         .index_document(
             2,
             &[
-                (leit_core::FieldId::new(1), "Information Retrieval"),
+                (leit_common::FieldId::new(1), "Information Retrieval"),
                 (
-                    leit_core::FieldId::new(2),
+                    leit_common::FieldId::new(2),
                     "Search engines use inverted indices for retrieval",
                 ),
             ],
@@ -719,8 +719,8 @@ fn test_e2e_search_pipeline_bm25f() {
         .index_document(
             3,
             &[
-                (leit_core::FieldId::new(1), "Cooking Notes"),
-                (leit_core::FieldId::new(2), "Recipes and ingredients"),
+                (leit_common::FieldId::new(1), "Cooking Notes"),
+                (leit_common::FieldId::new(2), "Recipes and ingredients"),
             ],
         )
         .expect("document 3 should index");

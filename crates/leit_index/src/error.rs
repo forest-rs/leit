@@ -23,7 +23,7 @@ pub enum IndexError {
     /// A document ID was indexed more than once.
     DuplicateDocument(u32),
     /// A field was indexed without a registered analyzer.
-    MissingAnalyzer(leit_core::FieldId),
+    MissingAnalyzer(leit_common::FieldId),
     /// Execution required scores but no scorer was supplied.
     MissingScorer,
     /// A size or offset does not fit in the on-disk format.

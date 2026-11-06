@@ -271,7 +271,7 @@ mod deprecated_shim_tests {
     use super::{DirectorySegmentView, SectionKind};
     use crate::InMemoryIndexBuilder;
     use crate::codec::encode_segment;
-    use leit_core::FieldId;
+    use leit_common::FieldId;
     use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
     fn analyzers() -> FieldAnalyzers {

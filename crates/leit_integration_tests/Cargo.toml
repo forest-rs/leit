@@ -13,7 +13,7 @@ publish = false
 [features]
 default = ["std"]
 std = [
-    "leit_core/std",
+    "leit_common/std",
     "leit_score/std",
     "leit_collect/std",
     "leit_fusion/std",
@@ -26,7 +26,7 @@ std = [
 [dependencies]
 # Internal crates - all needed for integration tests
 leit_collect.workspace = true
-leit_core.workspace = true
+leit_common.workspace = true
 leit_fusion.workspace = true
 leit_index.workspace = true
 leit_postings.workspace = true

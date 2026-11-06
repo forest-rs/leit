@@ -8,9 +8,9 @@ use core::cell::RefCell;
 use core::ops::{AddAssign, MulAssign};
 
 use leit_collect::Collector;
-use leit_core::{FieldId, FilterEvaluator, QueryNodeId, Score, ScoredHit, TermId};
+use leit_common::{FieldId, FilterEvaluator, QueryNodeId, Score, ScoredHit, TermId};
 #[cfg(test)]
-use leit_core::{SegmentLocalDocId, TermFreq};
+use leit_common::{SegmentLocalDocId, TermFreq};
 #[cfg(test)]
 use leit_postings::codec::{BlockDeltaCodec, Codec, CodecId, DeltaVarintCodec};
 use leit_postings::cursor::{
@@ -1938,7 +1938,7 @@ mod tests {
             program,
             program.root(),
             Some(SearchScorer::bm25()),
-            &leit_core::NoFilter,
+            &leit_common::NoFilter,
             &mut scratch,
             &mut stats,
         )
@@ -2031,7 +2031,7 @@ mod tests {
             &program,
             program.root(),
             Some(SearchScorer::bm25()),
-            &leit_core::NoFilter,
+            &leit_common::NoFilter,
             &mut scratch,
             &mut stats,
         )
@@ -2208,7 +2208,7 @@ mod tests {
 
     #[test]
     fn prepared_compressed_sources_preserve_ranking() {
-        use leit_core::NoFilter;
+        use leit_common::NoFilter;
         use leit_query::Planner;
 
         // Build a large deterministic test corpus: 300 docs across two fields.

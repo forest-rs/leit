@@ -4,7 +4,7 @@
 //! Property-based invariant tests for `leit_collect`.
 
 use leit_collect::{Collector, TopKCollector};
-use leit_core::{Score, ScoredHit};
+use leit_common::{Score, ScoredHit};
 use proptest::collection::vec;
 use proptest::prelude::*;
 

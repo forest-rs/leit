@@ -2,7 +2,7 @@
 members = [
     "crates/leit_benchmark",
     "crates/leit_collect",
-    "crates/leit_core",
+    "crates/leit_common",
     "crates/leit_fusion",
     "crates/leit_index",
     "crates/leit_integration_tests",
@@ -33,7 +33,7 @@ categories = ["algorithms", "data-structures", "database-implementations"]
 # Internal crate dependencies
 leit_benchmark = { path = "crates/leit_benchmark", version = "0.1.0" }
 leit_collect = { default-features = false, path = "crates/leit_collect", version = "0.1.0" }
-leit_core = { default-features = false, path = "crates/leit_core", version = "0.1.0" }
+leit_common = { default-features = false, path = "crates/leit_common", version = "0.1.0" }
 leit_fusion = { default-features = false, path = "crates/leit_fusion", version = "0.1.0" }
 leit_index = { default-features = false, path = "crates/leit_index", version = "0.1.0" }
 leit_integration_tests = { path = "crates/leit_integration_tests", version = "0.1.0" }

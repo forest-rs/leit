@@ -5,7 +5,7 @@
 
 use std::alloc::System;
 
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{ExecutableIndex, InMemoryIndex, InMemoryIndexBuilder};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 use leit_wind_tunnel::allocation::{AllocationSnapshot, CountingAllocator};

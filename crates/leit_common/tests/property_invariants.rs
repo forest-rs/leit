@@ -1,12 +1,12 @@
 // Copyright 2026 the Leit Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Property-based invariant tests for `leit_core`.
+//! Property-based invariant tests for `leit_common`.
 
 use std::ops::{Add, Mul, Sub};
 use std::panic;
 
-use leit_core::{Score, ScoredHit};
+use leit_common::{Score, ScoredHit};
 use proptest::prelude::*;
 
 proptest! {

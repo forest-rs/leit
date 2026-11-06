@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use leit_collect::{Collector, TopKCollector};
-use leit_core::{FieldId, FilterEvaluator, Score, ScoredHit, ScratchSpace};
+use leit_common::{FieldId, FilterEvaluator, Score, ScoredHit, ScratchSpace};
 #[cfg(feature = "bench-internals")]
 use leit_postings::codec::CodecError;
 #[cfg(feature = "bench-internals")]
@@ -302,7 +302,7 @@ impl ExecutionWorkspace {
     ///
     /// The filter's [`slots()`](FilterEvaluator::slots) are used to wrap the
     /// plan with [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes.
-    /// Pass [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    /// Pass [`NoFilter`](leit_common::NoFilter) for unfiltered queries.
     /// `options` supplies per-query planning controls; see [`PlanOptions`] for
     /// the exact scope of BM25F field weights.
     pub fn plan<I, F>(
@@ -418,7 +418,7 @@ impl ExecutionWorkspace {
     /// The filter's [`slots()`](FilterEvaluator::slots) are used to wrap the
     /// plan with [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes,
     /// and the evaluator is dispatched for each candidate during execution.
-    /// Pass [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    /// Pass [`NoFilter`](leit_common::NoFilter) for unfiltered queries.
     /// `options` has the same semantics as in [`plan`](Self::plan).
     pub fn search<F: FilterEvaluator<u32>>(
         &mut self,
@@ -441,7 +441,7 @@ impl ExecutionWorkspace {
     /// The typed counterpart of [`search`](Self::search): the filter's
     /// [`slots()`](FilterEvaluator::slots) wrap the plan with
     /// [`ExternalFilter`](leit_query::QueryNode::ExternalFilter) nodes. Pass
-    /// [`NoFilter`](leit_core::NoFilter) for unfiltered queries.
+    /// [`NoFilter`](leit_common::NoFilter) for unfiltered queries.
     ///
     /// Terms bypass query syntax parsing. The index applies its field analyzer
     /// and resolves a term only when analysis produces exactly one token.
@@ -478,7 +478,7 @@ mod typed_boundary_tests {
     use super::*;
     use crate::InMemoryIndexBuilder;
     use alloc::vec;
-    use leit_core::{FilterSlotId, NoFilter};
+    use leit_common::{FilterSlotId, NoFilter};
     use leit_query::QueryBuilder;
     use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 

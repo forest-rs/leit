@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use leit_core::{FieldId, ScoredHit, TermId};
+use leit_common::{FieldId, ScoredHit, TermId};
 use leit_index::{
     ExecutableIndex, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
     PlanOptions, SearchScorer, prepare_merge,

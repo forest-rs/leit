@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 

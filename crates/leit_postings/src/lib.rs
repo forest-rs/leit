@@ -15,7 +15,7 @@ use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
-use leit_core::{EntityId, TermId};
+use leit_common::{EntityId, TermId};
 
 pub mod codec;
 pub mod cursor;

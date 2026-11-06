@@ -5,7 +5,7 @@ use alloc::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use leit_core::{FieldId, TermId};
+use leit_common::{FieldId, TermId};
 use leit_text::FieldAnalyzers;
 
 use crate::error::IndexError;

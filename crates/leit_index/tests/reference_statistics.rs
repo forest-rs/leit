@@ -5,7 +5,7 @@
 
 #![cfg(feature = "bench-internals")]
 
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{ExecutableIndex, InMemoryIndexBuilder, ReferenceExecutionIndex};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 

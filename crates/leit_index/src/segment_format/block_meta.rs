@@ -209,7 +209,7 @@ mod tests {
         use alloc::string::String;
         use alloc::vec;
 
-        use leit_core::{FieldId, TermId};
+        use leit_common::{FieldId, TermId};
         use leit_text::FieldAnalyzers;
 
         use crate::memory::{FieldMetadata, InMemoryIndex, PostingEntry, TermEntry};

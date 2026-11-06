@@ -124,7 +124,7 @@ refactor: split leit_index memory.rs into builder and search modules
 
 ### Task 3: Remove `// ====` section headers across all crates
 
-Remove the `// ============...` banner comments from all files. These exist in: `leit_core`, `leit_score`, `leit_query`, `leit_text`, `leit_postings`, `leit_collect`.
+Remove the `// ============...` banner comments from all files. These exist in: `leit_common`, `leit_score`, `leit_query`, `leit_text`, `leit_postings`, `leit_collect`.
 
 **Files:**
 - Modify: all `src/lib.rs` files listed above, plus `crates/leit_query/src/types.rs`
@@ -282,7 +282,7 @@ Change `PlanningContext` from single `default_field` to `default_fields: Vec<Fie
 
 In `crates/leit_query/src/types.rs`:
 
-Remove `Copy` from the derive (struct now contains `Vec`). Change `default_field: leit_core::FieldId` to `default_fields: Vec<leit_core::FieldId>`.
+Remove `Copy` from the derive (struct now contains `Vec`). Change `default_field: leit_common::FieldId` to `default_fields: Vec<leit_common::FieldId>`.
 
 - [ ] **Step 2: Update constructor and builder methods**
 

@@ -353,7 +353,7 @@ mod tests {
         use alloc::collections::{BTreeMap, BTreeSet};
         use alloc::string::String;
         use alloc::vec;
-        use leit_core::FieldId;
+        use leit_common::FieldId;
         use leit_text::FieldAnalyzers;
 
         // Build a minimal test index
@@ -376,30 +376,36 @@ mod tests {
         let mut terms_to_ids = BTreeMap::new();
         let mut term_entries = vec![];
 
-        terms_to_ids.insert((field_id, String::from("hello")), leit_core::TermId::new(0));
+        terms_to_ids.insert(
+            (field_id, String::from("hello")),
+            leit_common::TermId::new(0),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(0),
+            term_id: leit_common::TermId::new(0),
             term: String::from("hello"),
         });
 
-        terms_to_ids.insert((field_id, String::from("world")), leit_core::TermId::new(1));
+        terms_to_ids.insert(
+            (field_id, String::from("world")),
+            leit_common::TermId::new(1),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(1),
+            term_id: leit_common::TermId::new(1),
             term: String::from("world"),
         });
 
         let mut postings = BTreeMap::new();
         postings.insert(
-            leit_core::TermId::new(0),
+            leit_common::TermId::new(0),
             vec![PostingEntry {
                 doc_id: 0,
                 term_freq: 1,
             }],
         );
         postings.insert(
-            leit_core::TermId::new(1),
+            leit_common::TermId::new(1),
             vec![PostingEntry {
                 doc_id: 1,
                 term_freq: 1,
@@ -407,8 +413,8 @@ mod tests {
         );
 
         let mut posting_blocks = BTreeMap::new();
-        posting_blocks.insert(leit_core::TermId::new(0), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(1), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(0), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(1), vec![]);
 
         let field_doc_lengths = BTreeMap::new();
 
@@ -472,7 +478,7 @@ mod tests {
         use alloc::collections::{BTreeMap, BTreeSet};
         use alloc::string::String;
         use alloc::vec;
-        use leit_core::FieldId;
+        use leit_common::FieldId;
         use leit_text::FieldAnalyzers;
 
         // Build a minimal test index
@@ -495,30 +501,36 @@ mod tests {
         let mut terms_to_ids = BTreeMap::new();
         let mut term_entries = vec![];
 
-        terms_to_ids.insert((field_id, String::from("hello")), leit_core::TermId::new(0));
+        terms_to_ids.insert(
+            (field_id, String::from("hello")),
+            leit_common::TermId::new(0),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(0),
+            term_id: leit_common::TermId::new(0),
             term: String::from("hello"),
         });
 
-        terms_to_ids.insert((field_id, String::from("world")), leit_core::TermId::new(1));
+        terms_to_ids.insert(
+            (field_id, String::from("world")),
+            leit_common::TermId::new(1),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(1),
+            term_id: leit_common::TermId::new(1),
             term: String::from("world"),
         });
 
         let mut postings = BTreeMap::new();
         postings.insert(
-            leit_core::TermId::new(0),
+            leit_common::TermId::new(0),
             vec![PostingEntry {
                 doc_id: 0,
                 term_freq: 1,
             }],
         );
         postings.insert(
-            leit_core::TermId::new(1),
+            leit_common::TermId::new(1),
             vec![PostingEntry {
                 doc_id: 1,
                 term_freq: 1,
@@ -526,8 +538,8 @@ mod tests {
         );
 
         let mut posting_blocks = BTreeMap::new();
-        posting_blocks.insert(leit_core::TermId::new(0), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(1), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(0), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(1), vec![]);
 
         let field_doc_lengths = BTreeMap::new();
 

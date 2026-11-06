@@ -133,7 +133,7 @@ mod tests {
 mod integration_tests {
     use super::*;
     use crate::corpus::CorpusGenerator;
-    use leit_core::FieldId;
+    use leit_common::FieldId;
     use leit_index::{
         ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
     };

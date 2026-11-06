@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{
     ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
 };
@@ -82,7 +82,7 @@ fn normalize_for_expectation(token: &str) -> String {
     default_normalizer().normalize(token)
 }
 
-fn search(index: &InMemoryIndex, query: &str) -> Vec<leit_core::ScoredHit<u32>> {
+fn search(index: &InMemoryIndex, query: &str) -> Vec<leit_common::ScoredHit<u32>> {
     let mut workspace = ExecutionWorkspace::new();
     workspace
         .search(

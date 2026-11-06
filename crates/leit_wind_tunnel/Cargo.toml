@@ -20,7 +20,7 @@ rapidhash = { workspace = true }
 
 [dev-dependencies]
 leit_collect = { features = ["bench-internals", "std"], workspace = true }
-leit_core = { features = ["std"], workspace = true }
+leit_common = { features = ["std"], workspace = true }
 leit_index = { features = ["bench-internals", "std"], workspace = true }
 leit_postings = { features = ["bench-internals", "std"], workspace = true }
 leit_query = { features = ["std"], workspace = true }

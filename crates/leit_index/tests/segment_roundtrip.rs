@@ -3,7 +3,7 @@
 
 //! Segment round-trip and validation tests for `leit-index` (Phase 2+ DEC-05 format).
 
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{
     InMemoryIndexBuilder, SegmentError, SegmentIndex, SegmentView, ValidationMode,
     migrate_to_current,

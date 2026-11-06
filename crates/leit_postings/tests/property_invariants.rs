@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use leit_core::TermId;
+use leit_common::TermId;
 use leit_postings::{BlockCursorState, InMemoryPostings, Posting, PostingsList};
 use proptest::collection::vec;
 use proptest::prelude::*;

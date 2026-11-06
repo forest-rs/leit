@@ -6,7 +6,7 @@
 use alloc::vec::Vec;
 use core::fmt;
 
-use leit_core::{SegmentLocalDocId, TermFreq};
+use leit_common::{SegmentLocalDocId, TermFreq};
 use leit_postings::codec::{BLOCK_DOC_COUNT, CodecId, encoded_body_len_from_iter};
 
 use crate::error::{IndexError, SegmentError, ValidationMode};
@@ -236,7 +236,7 @@ mod tests {
     use super::*;
 
     use alloc::vec;
-    use leit_core::FieldId;
+    use leit_common::FieldId;
     use leit_query::TermDictionary;
     use leit_text::{
         AnalysisSchemaId, Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer,
