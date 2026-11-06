@@ -21,7 +21,7 @@
 //! textual queries, build the immutable in-memory index, and search it:
 //!
 //! ```
-//! use leit_core::FieldId;
+//! use leit_common::FieldId;
 //! use leit_index::{
 //!     ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
 //! };
@@ -80,7 +80,7 @@ pub use error::{IndexError, SegmentError, ValidationMode};
 pub use index_surface::{
     ExecutableIndex, FieldStatsView, PlanningIndex, PostingBlockView, TermEntryView,
 };
-pub use leit_core::{FilterEvaluator, FilterSlotId, NoFilter};
+pub use leit_common::{FilterEvaluator, FilterSlotId, NoFilter};
 pub use leit_postings::codec::CodecId;
 pub use leit_query::{BooleanOp, QueryBuilder, UserQueryNode, UserQueryProgram};
 #[cfg(feature = "bench-internals")]

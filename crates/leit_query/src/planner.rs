@@ -4,7 +4,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use leit_core::QueryNodeId;
+use leit_common::QueryNodeId;
 
 use crate::builder::query_node_id;
 use crate::types::{
@@ -651,7 +651,7 @@ fn lower_user_node(
 mod typed_boundary_tests {
     use super::*;
     use crate::{FieldRegistry, QueryBuilder, TermDictionary};
-    use leit_core::{FieldId, TermId};
+    use leit_common::{FieldId, TermId};
 
     struct Vocabulary;
 

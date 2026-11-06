@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use leit_collect::{CountCollector, TopKCollector, collectors};
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{
     ExecutionStats, ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions,
     PlanningIndex, SearchScorer,
@@ -50,10 +50,10 @@ impl FieldRegistry for MockPlanningIndex {
 }
 
 impl TermDictionary for MockPlanningIndex {
-    fn resolve_term(&self, field: FieldId, term: &str) -> Option<leit_core::TermId> {
+    fn resolve_term(&self, field: FieldId, term: &str) -> Option<leit_common::TermId> {
         match (field.as_u32(), term) {
-            (1, "rust") => Some(leit_core::TermId::new(10)),
-            (2, "rust") => Some(leit_core::TermId::new(20)),
+            (1, "rust") => Some(leit_common::TermId::new(10)),
+            (2, "rust") => Some(leit_common::TermId::new(20)),
             _ => None,
         }
     }
@@ -75,7 +75,7 @@ fn search(
     index: &InMemoryIndex,
     query: &str,
     limit: usize,
-) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
+) -> Result<Vec<leit_common::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
     workspace.search(
         index,
@@ -107,7 +107,7 @@ fn search_with_stats(
     index: &InMemoryIndex,
     query: &str,
     limit: usize,
-) -> Result<(Vec<leit_core::ScoredHit<u32>>, ExecutionStats), leit_index::IndexError> {
+) -> Result<(Vec<leit_common::ScoredHit<u32>>, ExecutionStats), leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
     let hits = workspace.search(
         index,
@@ -672,7 +672,7 @@ fn search_bm25f(
     index: &InMemoryIndex,
     query: &str,
     limit: usize,
-) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
+) -> Result<Vec<leit_common::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
     workspace.search(
         index,
@@ -689,7 +689,7 @@ fn search_bm25f_weighted(
     query: &str,
     limit: usize,
     field_weights: std::collections::BTreeMap<FieldId, f32>,
-) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
+) -> Result<Vec<leit_common::ScoredHit<u32>>, leit_index::IndexError> {
     let mut workspace = ExecutionWorkspace::new();
     workspace.search(
         index,
@@ -706,7 +706,7 @@ fn search_bm25f_with_default_boost(
     query: &str,
     limit: usize,
     default_boost: f32,
-) -> Result<Vec<leit_core::ScoredHit<u32>>, leit_index::IndexError> {
+) -> Result<Vec<leit_common::ScoredHit<u32>>, leit_index::IndexError> {
     let planner = Planner::new();
     let context = PlanningContext::new(index, index)
         .with_default_fields(vec![FieldId::new(1), FieldId::new(2)])
@@ -806,7 +806,7 @@ fn bm25f_uses_unique_document_frequency_across_fields() {
 
     assert_eq!(hits.len(), 1, "document should match");
     assert!(
-        hits[0].score > leit_core::Score::ZERO,
+        hits[0].score > leit_common::Score::ZERO,
         "unique document frequency should not zero a valid two-field match"
     );
 }

@@ -124,7 +124,7 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
-    use leit_core::FieldId;
+    use leit_common::FieldId;
     use leit_text::FieldAnalyzers;
 
     use crate::memory::{FieldMetadata, InMemoryIndex, PostingEntry, TermEntry};
@@ -152,25 +152,31 @@ mod tests {
         let mut term_entries = vec![];
 
         // Term "hello" (term_id = 0)
-        terms_to_ids.insert((field_id, String::from("hello")), leit_core::TermId::new(0));
+        terms_to_ids.insert(
+            (field_id, String::from("hello")),
+            leit_common::TermId::new(0),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(0),
+            term_id: leit_common::TermId::new(0),
             term: String::from("hello"),
         });
 
         // Term "world" (term_id = 1)
-        terms_to_ids.insert((field_id, String::from("world")), leit_core::TermId::new(1));
+        terms_to_ids.insert(
+            (field_id, String::from("world")),
+            leit_common::TermId::new(1),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(1),
+            term_id: leit_common::TermId::new(1),
             term: String::from("world"),
         });
 
         // Build postings
-        let mut postings: BTreeMap<leit_core::TermId, Vec<PostingEntry>> = BTreeMap::new();
+        let mut postings: BTreeMap<leit_common::TermId, Vec<PostingEntry>> = BTreeMap::new();
         postings.insert(
-            leit_core::TermId::new(0),
+            leit_common::TermId::new(0),
             vec![
                 PostingEntry {
                     doc_id: 0,
@@ -183,7 +189,7 @@ mod tests {
             ],
         );
         postings.insert(
-            leit_core::TermId::new(1),
+            leit_common::TermId::new(1),
             vec![PostingEntry {
                 doc_id: 0,
                 term_freq: 1,

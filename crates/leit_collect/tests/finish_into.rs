@@ -6,7 +6,7 @@
 #![cfg(feature = "bench-internals")]
 
 use leit_collect::{Collector, TopKCollector};
-use leit_core::{Score, ScoredHit};
+use leit_common::{Score, ScoredHit};
 
 fn candidates() -> [ScoredHit<u32>; 7] {
     [

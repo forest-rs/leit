@@ -61,7 +61,7 @@ use alloc::vec::Vec;
 use crate::codec::{
     BLOCK_DOC_COUNT, BlockDeltaCodec, Codec, CodecError, CodecId, DeltaVarintCodec,
 };
-use leit_core::{SegmentLocalDocId, TermFreq};
+use leit_common::{SegmentLocalDocId, TermFreq};
 
 // ============================================================================
 // T2: Core Types

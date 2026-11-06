@@ -3,7 +3,7 @@
 
 //! Full-mode semantic validation for the v1 postings encoding discriminator.
 
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{
     CodecId, InMemoryIndex, InMemoryIndexBuilder, SegmentError, SegmentView, ValidationMode,
     prepare_serialization,

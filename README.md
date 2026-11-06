@@ -24,7 +24,7 @@ Add the three crates used by the minimal search path:
 
 ```toml
 [dependencies]
-leit_core = "0.1"
+leit_common = "0.1"
 leit_index = "0.1"
 leit_text = "0.1"
 ```
@@ -33,7 +33,7 @@ Then put this in `src/main.rs`. It configures a field analyzer, builds an
 immutable in-memory index, and runs a ranked query with BM25:
 
 ```rust
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer};
 use leit_text::{Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer};
 
@@ -81,7 +81,7 @@ The library crates are designed to work in `no_std` environments. They enable
 
 That applies to the main library path:
 
-- `leit_core`
+- `leit_common`
 - `leit_text`
 - `leit_query`
 - `leit_postings`
@@ -96,7 +96,7 @@ default features disabled.
 
 ## Workspace crates
 
-- `leit_core`: shared identifiers, scores, hits, and workspace traits
+- `leit_common`: shared identifiers, scores, hits, and workspace traits
 - `leit_text`: tokenization and Unicode normalization
 - `leit_query`: query construction and planning
 - `leit_postings`: postings storage and cursor traits
@@ -132,7 +132,7 @@ The library crates also support `no_std + alloc` builds with:
 
 ```bash
 cargo build \
-  -p leit_core -p leit_score -p leit_query -p leit_text \
+  -p leit_common -p leit_score -p leit_query -p leit_text \
   -p leit_postings -p leit_fusion -p leit_collect -p leit_index \
   --no-default-features --target x86_64-unknown-none
 ```

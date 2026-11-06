@@ -34,7 +34,7 @@ arrives.
 ```text
 leit_wind_tunnel
   ├── rapidhash (deterministic hashing via versioned API, e.g. rapidhash::v1)
-  ├── leit_core (FieldId, ScoredHit, Score)
+  ├── leit_common (FieldId, ScoredHit, Score)
   └── (no Criterion dependency)
 
 leit_wind_tunnel_index

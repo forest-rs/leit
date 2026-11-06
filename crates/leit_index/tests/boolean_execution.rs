@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use leit_collect::TopKCollector;
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{
     ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
 };
@@ -80,7 +80,7 @@ fn result_ids(index: &InMemoryIndex, query: &str, limit: usize) -> BTreeSet<u32>
         .collect()
 }
 
-fn results(index: &InMemoryIndex, query: &str, limit: usize) -> Vec<leit_core::ScoredHit<u32>> {
+fn results(index: &InMemoryIndex, query: &str, limit: usize) -> Vec<leit_common::ScoredHit<u32>> {
     let mut workspace = ExecutionWorkspace::new();
     workspace
         .search(
@@ -117,7 +117,7 @@ fn execute_plan(
     index: &InMemoryIndex,
     plan: &ExecutionPlan,
     limit: usize,
-) -> Vec<leit_core::ScoredHit<u32>> {
+) -> Vec<leit_common::ScoredHit<u32>> {
     let mut workspace = ExecutionWorkspace::new();
     let mut collector = TopKCollector::new(limit);
     workspace
@@ -170,9 +170,9 @@ fn or_not_keeps_positive_scores_and_filter_matches_neutral() {
     let by_id: std::collections::BTreeMap<_, _> =
         hits.into_iter().map(|hit| (hit.id, hit.score)).collect();
     assert_eq!(by_id.len(), 3);
-    assert!(by_id[&1] > leit_core::Score::ZERO);
-    assert!(by_id[&2] > leit_core::Score::ZERO);
-    assert_eq!(by_id[&3], leit_core::Score::ZERO);
+    assert!(by_id[&1] > leit_common::Score::ZERO);
+    assert!(by_id[&2] > leit_common::Score::ZERO);
+    assert_eq!(by_id[&3], leit_common::Score::ZERO);
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn bare_not_returns_neutral_scores() {
         hits.iter().map(|hit| hit.id).collect::<BTreeSet<_>>(),
         BTreeSet::from([1, 3])
     );
-    assert!(hits.iter().all(|hit| hit.score == leit_core::Score::ZERO));
+    assert!(hits.iter().all(|hit| hit.score == leit_common::Score::ZERO));
 }
 
 #[test]
@@ -222,14 +222,14 @@ fn constant_score_wraps_filter_only_not_query() {
                 boost: 1.0,
             },
             QueryNode::Not {
-                child: leit_core::QueryNodeId::new(0),
+                child: leit_common::QueryNodeId::new(0),
             },
             QueryNode::ConstantScore {
-                child: leit_core::QueryNodeId::new(1),
+                child: leit_common::QueryNodeId::new(1),
                 score: 7.5,
             },
         ],
-        leit_core::QueryNodeId::new(2),
+        leit_common::QueryNodeId::new(2),
         3,
     );
     let plan = ExecutionPlan {
@@ -242,8 +242,8 @@ fn constant_score_wraps_filter_only_not_query() {
     let hits = execute_plan(&index, &plan, 10);
 
     assert_eq!(hits.len(), 2);
-    assert_eq!(hits[0].score, leit_core::Score::new(7.5));
-    assert_eq!(hits[1].score, leit_core::Score::new(7.5));
+    assert_eq!(hits[0].score, leit_common::Score::new(7.5));
+    assert_eq!(hits[1].score, leit_common::Score::new(7.5));
     assert_eq!(
         hits.iter().map(|hit| hit.id).collect::<BTreeSet<_>>(),
         BTreeSet::from([1, 3])
@@ -283,21 +283,21 @@ fn constant_score_wraps_mixed_scoring_and_filter_matches() {
                 boost: 1.0,
             },
             QueryNode::Not {
-                child: leit_core::QueryNodeId::new(1),
+                child: leit_common::QueryNodeId::new(1),
             },
             QueryNode::Or {
                 children: vec![
-                    leit_core::QueryNodeId::new(0),
-                    leit_core::QueryNodeId::new(2),
+                    leit_common::QueryNodeId::new(0),
+                    leit_common::QueryNodeId::new(2),
                 ],
                 boost: 1.0,
             },
             QueryNode::ConstantScore {
-                child: leit_core::QueryNodeId::new(3),
+                child: leit_common::QueryNodeId::new(3),
                 score: 2.25,
             },
         ],
-        leit_core::QueryNodeId::new(4),
+        leit_common::QueryNodeId::new(4),
         3,
     );
     let plan = ExecutionPlan {
@@ -312,7 +312,7 @@ fn constant_score_wraps_mixed_scoring_and_filter_matches() {
     assert_eq!(hits.len(), 3);
     assert!(
         hits.iter()
-            .all(|hit| hit.score == leit_core::Score::new(2.25))
+            .all(|hit| hit.score == leit_common::Score::new(2.25))
     );
     assert_eq!(
         hits.iter().map(|hit| hit.id).collect::<BTreeSet<_>>(),

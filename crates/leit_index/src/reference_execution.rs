@@ -6,7 +6,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::{AddAssign, MulAssign};
 
-use leit_core::{FieldId, FilterEvaluator, QueryNodeId, Score, ScoredHit, TermId};
+use leit_common::{FieldId, FilterEvaluator, QueryNodeId, Score, ScoredHit, TermId};
 use leit_query::{ExecutionPlan, QueryNode, QueryProgram};
 use leit_text::FieldAnalyzers;
 
@@ -48,7 +48,7 @@ mod tests {
     use alloc::collections::BTreeMap;
     use alloc::vec;
 
-    use leit_core::{NoFilter, QueryNodeId};
+    use leit_common::{NoFilter, QueryNodeId};
     use leit_query::{ExecutionPlan, FeatureSet, QueryNode, QueryProgram};
     use leit_text::FieldAnalyzers;
 
@@ -61,8 +61,8 @@ mod tests {
         let program = QueryProgram::new(
             vec![
                 QueryNode::Term {
-                    field: leit_core::FieldId::new(1),
-                    term: leit_core::TermId::new(0),
+                    field: leit_common::FieldId::new(1),
+                    term: leit_common::TermId::new(0),
                     boost: 1.0,
                 },
                 QueryNode::ConstantScore {

@@ -41,7 +41,7 @@ mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
-    use leit_core::QueryNodeId;
+    use leit_common::QueryNodeId;
 
     use super::*;
 

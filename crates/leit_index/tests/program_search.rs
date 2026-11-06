@@ -4,7 +4,7 @@
 //! Typed query-program planning and search through `ExecutionWorkspace`.
 
 use leit_collect::TopKCollector;
-use leit_core::{FieldId, FilterSlotId};
+use leit_common::{FieldId, FilterSlotId};
 use leit_index::{
     ExecutionWorkspace, FilterEvaluator, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
     PlanOptions, QueryBuilder, SearchScorer,

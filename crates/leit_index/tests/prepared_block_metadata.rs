@@ -3,7 +3,7 @@
 
 //! Contract coverage for block metadata rebuilt during prepared serialization.
 
-use leit_core::{FieldId, SegmentLocalDocId, TermFreq};
+use leit_common::{FieldId, SegmentLocalDocId, TermFreq};
 use leit_index::{
     CodecId, ExecutableIndex, InMemoryIndex, InMemoryIndexBuilder, SegmentView,
     prepare_serialization,

@@ -1,7 +1,7 @@
 // Copyright 2026 the Leit Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Core types and traits for Leit retrieval system.
+//! Common types and traits for Leit retrieval system.
 //!
 //! This crate provides foundational types used throughout the Leit ecosystem:
 //! - Typed identifiers for fields, terms, segments, and query nodes

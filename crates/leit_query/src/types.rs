@@ -10,7 +10,7 @@ use core::convert::TryFrom;
 use core::fmt;
 use core::iter::Iterator;
 
-use leit_core::QueryNodeId;
+use leit_common::QueryNodeId;
 
 /// Internal arena storage for query nodes.
 #[derive(Debug, Default)]
@@ -531,9 +531,9 @@ pub enum QueryNode {
     /// Resolved term lookup.
     Term {
         /// Canonical field identifier.
-        field: leit_core::FieldId,
+        field: leit_common::FieldId,
         /// Canonical term identifier.
-        term: leit_core::TermId,
+        term: leit_common::TermId,
         /// Score multiplier for the term.
         boost: f32,
     },
@@ -560,11 +560,11 @@ pub enum QueryNode {
         /// Resolved term child node identifiers.
         children: Vec<QueryNodeId>,
         /// All searched default fields for this expansion.
-        fields: Vec<leit_core::FieldId>,
+        fields: Vec<leit_common::FieldId>,
         /// Score multiplier for the expansion.
         boost: f32,
         /// Per-field BM25F weight overrides. Fields absent from the map default to weight 1.0.
-        field_weights: BTreeMap<leit_core::FieldId, f32>,
+        field_weights: BTreeMap<leit_common::FieldId, f32>,
     },
     /// Logical negation.
     Not {
@@ -590,7 +590,7 @@ pub enum QueryNode {
         predicate: FilterPredicate,
     },
     /// Application-provided filter resolved at execution time via
-    /// [`FilterEvaluator`](leit_core::FilterEvaluator). Evaluates `input` for scoring, then calls
+    /// [`FilterEvaluator`](leit_common::FilterEvaluator). Evaluates `input` for scoring, then calls
     /// the evaluator with `slot` to accept/reject candidates.
     ///
     /// Does not contribute to score.
@@ -598,7 +598,7 @@ pub enum QueryNode {
         /// The scoring subquery.
         input: QueryNodeId,
         /// The filter slot identifier.
-        slot: leit_core::FilterSlotId,
+        slot: leit_common::FilterSlotId,
     },
 }
 
@@ -620,13 +620,13 @@ impl QueryNode {
 /// Trait for resolving field names during planning.
 pub trait FieldRegistry {
     /// Resolve a field name to a canonical field identifier.
-    fn resolve_field(&self, field: &str) -> Option<leit_core::FieldId>;
+    fn resolve_field(&self, field: &str) -> Option<leit_common::FieldId>;
 }
 
 /// Trait for resolving terms during planning.
 pub trait TermDictionary {
     /// Resolve a term for a field to a canonical term identifier.
-    fn resolve_term(&self, field: leit_core::FieldId, term: &str) -> Option<leit_core::TermId>;
+    fn resolve_term(&self, field: leit_common::FieldId, term: &str) -> Option<leit_common::TermId>;
 }
 
 /// Planning context for Phase 1 query planning.
@@ -634,9 +634,9 @@ pub trait TermDictionary {
 pub struct PlanningContext<'a> {
     pub(crate) dictionary: &'a dyn TermDictionary,
     pub(crate) fields: &'a dyn FieldRegistry,
-    pub(crate) default_fields: Vec<leit_core::FieldId>,
+    pub(crate) default_fields: Vec<leit_common::FieldId>,
     pub(crate) default_boost: f32,
-    pub(crate) field_weights: BTreeMap<leit_core::FieldId, f32>,
+    pub(crate) field_weights: BTreeMap<leit_common::FieldId, f32>,
 }
 
 impl<'a> PlanningContext<'a> {
@@ -653,14 +653,14 @@ impl<'a> PlanningContext<'a> {
 
     /// Set the default fields for unfielded term expansion.
     #[must_use]
-    pub fn with_default_fields(mut self, fields: Vec<leit_core::FieldId>) -> Self {
+    pub fn with_default_fields(mut self, fields: Vec<leit_common::FieldId>) -> Self {
         self.default_fields = fields;
         self
     }
 
     /// Set a single default field (backward compatible).
     #[must_use]
-    pub fn with_default_field(mut self, field: leit_core::FieldId) -> Self {
+    pub fn with_default_field(mut self, field: leit_common::FieldId) -> Self {
         self.default_fields = alloc::vec![field];
         self
     }
@@ -679,7 +679,7 @@ impl<'a> PlanningContext<'a> {
     /// single default field use unit weight. Fields absent from the map default
     /// to weight 1.0 at execution time. Weights must be finite and non-negative.
     #[must_use]
-    pub fn with_field_weights(mut self, weights: BTreeMap<leit_core::FieldId, f32>) -> Self {
+    pub fn with_field_weights(mut self, weights: BTreeMap<leit_common::FieldId, f32>) -> Self {
         validate_field_weights(&weights)
             .expect("BM25F field weights must be finite and non-negative");
         self.field_weights = weights;
@@ -694,7 +694,7 @@ impl<'a> PlanningContext<'a> {
     /// to weight 1.0 at execution time. Weights must be finite and non-negative.
     pub fn try_with_field_weights(
         mut self,
-        weights: BTreeMap<leit_core::FieldId, f32>,
+        weights: BTreeMap<leit_common::FieldId, f32>,
     ) -> Result<Self, QueryError> {
         validate_field_weights(&weights)?;
         self.field_weights = weights;
@@ -702,7 +702,7 @@ impl<'a> PlanningContext<'a> {
     }
 }
 
-fn validate_field_weights(weights: &BTreeMap<leit_core::FieldId, f32>) -> Result<(), QueryError> {
+fn validate_field_weights(weights: &BTreeMap<leit_common::FieldId, f32>) -> Result<(), QueryError> {
     for (&field, &weight) in weights {
         if !weight.is_finite() || weight < 0.0 {
             return Err(QueryError::InvalidFieldWeight { field });
@@ -748,7 +748,7 @@ pub enum QueryError {
     /// The term could not be resolved.
     UnknownTerm {
         /// The field whose dictionary lookup failed.
-        field: leit_core::FieldId,
+        field: leit_common::FieldId,
         /// The unresolved term text.
         term: alloc::string::String,
     },
@@ -791,7 +791,7 @@ pub enum QueryError {
     /// A BM25F field weight was not finite and non-negative.
     InvalidFieldWeight {
         /// The field whose configured weight was invalid.
-        field: leit_core::FieldId,
+        field: leit_common::FieldId,
     },
     /// A typed boost factor (or the composed product of nested boost
     /// factors, including the context default boost) was not finite and non-negative.
@@ -915,7 +915,7 @@ impl ExecutionPlan {
     /// - `cost` — recomputed as `program.nodes.len()`
     /// - `selectivity` — recomputed as `1.0 / node_count`
     /// - `required_features` — preserved
-    pub fn wrap_external_filter(&mut self, slot: leit_core::FilterSlotId) -> &mut Self {
+    pub fn wrap_external_filter(&mut self, slot: leit_common::FilterSlotId) -> &mut Self {
         let old_root = self.program.root;
         let new_id = QueryNodeId::new(
             u32::try_from(self.program.nodes.len()).expect("query program exceeded u32 node IDs"),
@@ -970,14 +970,14 @@ pub enum FilterPredicate {
     /// Exact equality on a field value.
     Eq {
         /// The field to filter on.
-        field: leit_core::FieldId,
+        field: leit_common::FieldId,
         /// The value to compare against.
         value: FilterValue,
     },
     /// Inclusive range predicate. Either bound may be omitted for open-ended ranges.
     Range {
         /// The field to filter on.
-        field: leit_core::FieldId,
+        field: leit_common::FieldId,
         /// Lower bound (inclusive), or `None` for unbounded.
         low: Option<FilterValue>,
         /// Upper bound (inclusive), or `None` for unbounded.
@@ -986,7 +986,7 @@ pub enum FilterPredicate {
     /// Set membership predicate.
     In {
         /// The field to filter on.
-        field: leit_core::FieldId,
+        field: leit_common::FieldId,
         /// The set of values to match against.
         values: Vec<FilterValue>,
     },
@@ -1001,7 +1001,7 @@ pub enum FilterPredicate {
 #[cfg(test)]
 mod execution_plan_tests {
     use super::*;
-    use leit_core::{FieldId, FilterSlotId, TermId};
+    use leit_common::{FieldId, FilterSlotId, TermId};
 
     fn simple_term_plan() -> ExecutionPlan {
         let nodes = vec![QueryNode::Term {

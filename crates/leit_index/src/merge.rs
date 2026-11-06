@@ -5,7 +5,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::fmt;
 
-use leit_core::{FieldId, TermId};
+use leit_common::{FieldId, TermId};
 use leit_text::{AnalysisSchemaId, FieldAnalyzers};
 
 use crate::InMemoryIndex;
@@ -711,7 +711,7 @@ mod tests {
     use super::*;
     use alloc::vec;
 
-    use leit_core::FieldId;
+    use leit_common::FieldId;
     use leit_query::TermDictionary;
     use leit_text::{
         AnalysisSchemaId, Analyzer, FieldAnalyzers, UnicodeNormalizer, WhitespaceTokenizer,

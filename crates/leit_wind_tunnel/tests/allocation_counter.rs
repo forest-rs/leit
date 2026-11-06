@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
-use leit_core::{SegmentLocalDocId, TermFreq};
+use leit_common::{SegmentLocalDocId, TermFreq};
 use leit_index::ExecutionWorkspace;
 use leit_postings::codec::{BlockDeltaCodec, Codec, CodecId, DeltaVarintCodec};
 use leit_postings::cursor::{CursorStatus, DocCursor, PostingsView, TfCursor};

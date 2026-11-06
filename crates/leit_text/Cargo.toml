@@ -15,11 +15,11 @@ categories.workspace = true
 icu_casemap.workspace = true
 icu_locale_core.workspace = true
 icu_normalizer.workspace = true
-leit_core.workspace = true
+leit_common.workspace = true
 
 [features]
 default = ["std"]
-std = ["leit_core/std"]
+std = ["leit_common/std"]
 
 [lints]
 workspace = true

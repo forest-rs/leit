@@ -14,7 +14,7 @@ use alloc::collections::BinaryHeap;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 use core::mem;
-use leit_core::{EntityId, Score, ScoredHit};
+use leit_common::{EntityId, Score, ScoredHit};
 
 /// Trait for collecting search results.
 pub trait Collector<Id: EntityId> {

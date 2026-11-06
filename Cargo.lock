@@ -39,7 +39,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 name = "basic_search"
 version = "0.1.0"
 dependencies = [
- "leit_core",
+ "leit_common",
  "leit_index",
  "leit_text",
 ]
@@ -269,7 +269,7 @@ name = "explicit_execution"
 version = "0.1.0"
 dependencies = [
  "leit_collect",
- "leit_core",
+ "leit_common",
  "leit_index",
  "leit_text",
 ]
@@ -556,7 +556,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 name = "leit_benchmark"
 version = "0.1.0"
 dependencies = [
- "leit_core",
+ "leit_common",
  "leit_index",
  "leit_text",
 ]
@@ -565,12 +565,12 @@ dependencies = [
 name = "leit_collect"
 version = "0.1.0"
 dependencies = [
- "leit_core",
+ "leit_common",
  "proptest",
 ]
 
 [[package]]
-name = "leit_core"
+name = "leit_common"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
@@ -590,7 +590,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "leit_collect",
- "leit_core",
+ "leit_common",
  "leit_postings",
  "leit_query",
  "leit_score",
@@ -605,7 +605,7 @@ name = "leit_integration_tests"
 version = "0.1.0"
 dependencies = [
  "leit_collect",
- "leit_core",
+ "leit_common",
  "leit_fusion",
  "leit_index",
  "leit_postings",
@@ -619,7 +619,7 @@ dependencies = [
 name = "leit_postings"
 version = "0.1.0"
 dependencies = [
- "leit_core",
+ "leit_common",
  "proptest",
 ]
 
@@ -627,7 +627,7 @@ dependencies = [
 name = "leit_query"
 version = "0.1.0"
 dependencies = [
- "leit_core",
+ "leit_common",
  "proptest",
 ]
 
@@ -636,7 +636,7 @@ name = "leit_score"
 version = "0.1.0"
 dependencies = [
  "core_maths",
- "leit_core",
+ "leit_common",
  "proptest",
 ]
 
@@ -647,7 +647,7 @@ dependencies = [
  "icu_casemap",
  "icu_locale_core",
  "icu_normalizer",
- "leit_core",
+ "leit_common",
 ]
 
 [[package]]
@@ -655,7 +655,7 @@ name = "leit_wind_tunnel"
 version = "0.1.0"
 dependencies = [
  "leit_collect",
- "leit_core",
+ "leit_common",
  "leit_index",
  "leit_postings",
  "leit_query",
@@ -668,7 +668,7 @@ name = "leit_wind_tunnel_index"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "leit_core",
+ "leit_common",
  "leit_index",
  "leit_postings",
  "leit_text",
@@ -680,7 +680,7 @@ name = "leit_wind_tunnel_query"
 version = "0.1.0"
 dependencies = [
  "criterion",
- "leit_core",
+ "leit_common",
  "leit_index",
  "leit_text",
  "leit_wind_tunnel",

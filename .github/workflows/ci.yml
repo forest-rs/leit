@@ -12,7 +12,7 @@ env:
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
   RUST_MIN_VER_PKGS: >-
-    -p leit_core
+    -p leit_common
     -p leit_score
     -p leit_query
     -p leit_text

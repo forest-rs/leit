@@ -4,7 +4,7 @@
 //! Behavioral guards for reusing query-execution state.
 
 use leit_collect::TopKCollector;
-use leit_core::{FieldId, QueryNodeId, Score};
+use leit_common::{FieldId, QueryNodeId, Score};
 use leit_index::{
     ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, SearchScorer,
 };
@@ -125,12 +125,12 @@ fn shared_child_preserves_visit_stats() {
 }
 
 #[cfg(feature = "bench-internals")]
-fn encoded_postings(count: u32) -> Vec<(leit_core::SegmentLocalDocId, leit_core::TermFreq)> {
+fn encoded_postings(count: u32) -> Vec<(leit_common::SegmentLocalDocId, leit_common::TermFreq)> {
     (0..count)
         .map(|index| {
             (
-                leit_core::SegmentLocalDocId::new(index * 3 + 1),
-                leit_core::TermFreq::new(index % 7 + 1),
+                leit_common::SegmentLocalDocId::new(index * 3 + 1),
+                leit_common::TermFreq::new(index % 7 + 1),
             )
         })
         .collect()
@@ -140,15 +140,15 @@ fn encoded_postings(count: u32) -> Vec<(leit_core::SegmentLocalDocId, leit_core:
 fn traverse_prepared(
     workspace: &mut ExecutionWorkspace,
     encoded: &[u8],
-) -> Vec<(leit_core::SegmentLocalDocId, leit_core::TermFreq)> {
+) -> Vec<(leit_common::SegmentLocalDocId, leit_common::TermFreq)> {
     let mut cursor = workspace
         .decode_prepared_postings(PostingsView::new(encoded, &[]))
         .expect("prepared postings should decode");
     let mut decoded = Vec::new();
     while let Some(document) = cursor.current_doc() {
         decoded.push((
-            leit_core::SegmentLocalDocId::new(document),
-            leit_core::TermFreq::new(cursor.current_tf()),
+            leit_common::SegmentLocalDocId::new(document),
+            leit_common::TermFreq::new(cursor.current_tf()),
         ));
         if cursor.advance() == CursorStatus::Exhausted {
             break;

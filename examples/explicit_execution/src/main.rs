@@ -4,7 +4,7 @@
 //! Explicit planning and execution example for the Leit stack.
 
 use leit_collect::{CountCollector, TopKCollector, collectors};
-use leit_core::{FieldId, ScoredHit};
+use leit_common::{FieldId, ScoredHit};
 use leit_index::{
     ExecutionStats, ExecutionWorkspace, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
 };

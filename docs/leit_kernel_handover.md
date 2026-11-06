@@ -166,7 +166,7 @@ This is not ideological window dressing. It has concrete architectural consequen
 
 Crates that should strongly target `no_std` + `alloc` where feasible include:
 
-* `leit_core`
+* `leit_common`
 * `leit_query`
 * `leit_score`
 * `leit_collect`
@@ -319,7 +319,7 @@ Crate names should use underscores, not hyphens.
 The initial crate layout should look like this.
 
 ```text
-leit_core
+leit_common
 leit_text
 leit_query
 leit_postings
@@ -354,7 +354,7 @@ leit_wind_tunnel_wand
 
 ### Crate intent
 
-#### `leit_core`
+#### `leit_common`
 
 Common identifiers, basic result types, small shared traits, and low-level retrieval vocabulary.
 
@@ -473,7 +473,7 @@ Leit should not become a graph database, but it should have a clean place for gr
 
 The following crates form the **core retrieval kernel**. These crates should remain small, composable, and as `no_std` friendly as possible.
 
-* `leit_core`
+* `leit_common`
 * `leit_query`
 * `leit_postings`
 * `leit_score`
@@ -482,9 +482,9 @@ The following crates form the **core retrieval kernel**. These crates should rem
 
 They implement the core mechanics of retrieval but do **not** orchestrate hybrid pipelines or external systems.
 
-## Core Types (`leit_core`)
+## Core Types (`leit_common`)
 
-The `leit_core` crate defines common identifiers and shared structures.
+The `leit_common` crate defines common identifiers and shared structures.
 
 ### v1 decision
 
@@ -525,7 +525,7 @@ Entity identifiers should remain application-defined:
 pub trait EntityId: Copy + Eq + core::hash::Hash {}
 ```
 
-`Send` and `Sync` should not be part of the core `EntityId` bound in `leit_core`, since that would unnecessarily push host-threading assumptions into a `no_std`-friendly crate.
+`Send` and `Sync` should not be part of the core `EntityId` bound in `leit_common`, since that would unnecessarily push host-threading assumptions into a `no_std`-friendly crate.
 
 If higher-level crates or application integrations need additional threading bounds, they can add them at those boundaries.
 
@@ -593,7 +593,7 @@ pub struct BlockId(pub u32);
 pub struct FilterExprId(pub u32);
 ```
 
-The core crate should stay small and `no_std` friendly.
+The common crate should stay small and `no_std` friendly.
 
 ## Text Processing (`leit_text`)
 
@@ -1858,7 +1858,7 @@ Core retrieval and early hybrid architecture.
 Crates:
 
 ```text
-leit_core
+leit_common
 leit_text
 leit_query
 leit_postings
@@ -1881,7 +1881,7 @@ Capabilities:
 #### Must-resolve before Phase 1 implementation
 
 * query execution form uses canonicalized `TermId` in `QueryProgram`
-* `EntityId` remains `no_std`-safe and does not require `Send + Sync` in `leit_core`
+* `EntityId` remains `no_std`-safe and does not require `Send + Sync` in `leit_common`
 * error handling uses concrete low-level enums rather than erased error types
 * `leit_index` supports borrowed buffer-backed segment views in addition to `std` acquisition paths
 * `leit_postings` settles on the v1 layered cursor shape (`DocCursor`, `TfCursor`, optional block-aware extension)

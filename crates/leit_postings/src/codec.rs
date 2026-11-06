@@ -16,7 +16,7 @@
 
 use alloc::vec::Vec;
 use core::fmt;
-use leit_core::{SegmentLocalDocId, TermFreq};
+use leit_common::{SegmentLocalDocId, TermFreq};
 
 /// Fixed block size for `BlockDelta` codec: 128 documents per block.
 ///

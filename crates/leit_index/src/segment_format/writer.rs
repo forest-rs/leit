@@ -31,7 +31,7 @@ use alloc::vec::Vec;
 use core::cmp;
 
 use bytemuck;
-use leit_core::{SegmentLocalDocId, TermFreq};
+use leit_common::{SegmentLocalDocId, TermFreq};
 use leit_postings::codec::{BLOCK_DOC_COUNT, BlockDeltaCodec, Codec, CodecId, DeltaVarintCodec};
 
 use crate::error::IndexError;
@@ -557,7 +557,7 @@ mod tests {
     use alloc::string::String;
     use alloc::vec;
 
-    use leit_core::FieldId;
+    use leit_common::FieldId;
     use leit_text::FieldAnalyzers;
 
     use crate::memory::{FieldMetadata, PostingEntry, TermEntry};
@@ -591,26 +591,35 @@ mod tests {
         let mut term_entries = vec![];
 
         // Term "hello" (term_id = 0)
-        terms_to_ids.insert((field_id, String::from("hello")), leit_core::TermId::new(0));
+        terms_to_ids.insert(
+            (field_id, String::from("hello")),
+            leit_common::TermId::new(0),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(0),
+            term_id: leit_common::TermId::new(0),
             term: String::from("hello"),
         });
 
         // Term "world" (term_id = 1)
-        terms_to_ids.insert((field_id, String::from("world")), leit_core::TermId::new(1));
+        terms_to_ids.insert(
+            (field_id, String::from("world")),
+            leit_common::TermId::new(1),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(1),
+            term_id: leit_common::TermId::new(1),
             term: String::from("world"),
         });
 
         // Term "rust" (term_id = 2)
-        terms_to_ids.insert((field_id, String::from("rust")), leit_core::TermId::new(2));
+        terms_to_ids.insert(
+            (field_id, String::from("rust")),
+            leit_common::TermId::new(2),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(2),
+            term_id: leit_common::TermId::new(2),
             term: String::from("rust"),
         });
 
@@ -620,7 +629,7 @@ mod tests {
         // Term 2 "rust": doc 1 (freq 3)
         let mut postings = BTreeMap::new();
         postings.insert(
-            leit_core::TermId::new(0),
+            leit_common::TermId::new(0),
             vec![
                 PostingEntry {
                     doc_id: 0,
@@ -633,14 +642,14 @@ mod tests {
             ],
         );
         postings.insert(
-            leit_core::TermId::new(1),
+            leit_common::TermId::new(1),
             vec![PostingEntry {
                 doc_id: 0,
                 term_freq: 2,
             }],
         );
         postings.insert(
-            leit_core::TermId::new(2),
+            leit_common::TermId::new(2),
             vec![PostingEntry {
                 doc_id: 1,
                 term_freq: 3,
@@ -648,9 +657,9 @@ mod tests {
         );
 
         let mut posting_blocks = BTreeMap::new();
-        posting_blocks.insert(leit_core::TermId::new(0), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(1), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(2), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(0), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(1), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(2), vec![]);
 
         let field_doc_lengths = BTreeMap::new();
 
@@ -1028,30 +1037,33 @@ mod tests {
         // Term "common" (term_id = 0): 200 postings => 2 blocks (128 + 72)
         terms_to_ids.insert(
             (field_id, String::from("common")),
-            leit_core::TermId::new(0),
+            leit_common::TermId::new(0),
         );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(0),
+            term_id: leit_common::TermId::new(0),
             term: String::from("common"),
         });
 
         // Term "rare" (term_id = 1): 1 posting => 1 block
-        terms_to_ids.insert((field_id, String::from("rare")), leit_core::TermId::new(1));
+        terms_to_ids.insert(
+            (field_id, String::from("rare")),
+            leit_common::TermId::new(1),
+        );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(1),
+            term_id: leit_common::TermId::new(1),
             term: String::from("rare"),
         });
 
         // Term "uncommon" (term_id = 2): 5 postings => 1 block
         terms_to_ids.insert(
             (field_id, String::from("uncommon")),
-            leit_core::TermId::new(2),
+            leit_common::TermId::new(2),
         );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(2),
+            term_id: leit_common::TermId::new(2),
             term: String::from("uncommon"),
         });
 
@@ -1065,11 +1077,11 @@ mod tests {
                 term_freq: (doc_id % 10) + 1,
             });
         }
-        postings.insert(leit_core::TermId::new(0), common_postings);
+        postings.insert(leit_common::TermId::new(0), common_postings);
 
         // "rare": 1 posting in doc 200
         postings.insert(
-            leit_core::TermId::new(1),
+            leit_common::TermId::new(1),
             vec![PostingEntry {
                 doc_id: 200,
                 term_freq: 5,
@@ -1078,7 +1090,7 @@ mod tests {
 
         // "uncommon": 5 postings in docs 10, 20, 30, 40, 50
         postings.insert(
-            leit_core::TermId::new(2),
+            leit_common::TermId::new(2),
             vec![
                 PostingEntry {
                     doc_id: 10,
@@ -1104,9 +1116,9 @@ mod tests {
         );
 
         let mut posting_blocks = BTreeMap::new();
-        posting_blocks.insert(leit_core::TermId::new(0), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(1), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(2), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(0), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(1), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(2), vec![]);
 
         let field_doc_lengths = BTreeMap::new();
 
@@ -1152,18 +1164,24 @@ mod tests {
         );
 
         let mut terms_to_ids = BTreeMap::new();
-        terms_to_ids.insert((field_id, String::from("alpha")), leit_core::TermId::new(0));
-        terms_to_ids.insert((field_id, String::from("beta")), leit_core::TermId::new(1));
+        terms_to_ids.insert(
+            (field_id, String::from("alpha")),
+            leit_common::TermId::new(0),
+        );
+        terms_to_ids.insert(
+            (field_id, String::from("beta")),
+            leit_common::TermId::new(1),
+        );
 
         let term_entries = vec![
             TermEntry {
                 field_id,
-                term_id: leit_core::TermId::new(0),
+                term_id: leit_common::TermId::new(0),
                 term: String::from("alpha"),
             },
             TermEntry {
                 field_id,
-                term_id: leit_core::TermId::new(1),
+                term_id: leit_common::TermId::new(1),
                 term: String::from("beta"),
             },
         ];
@@ -1176,7 +1194,7 @@ mod tests {
                 term_freq: 1,
             });
         }
-        postings.insert(leit_core::TermId::new(0), alpha);
+        postings.insert(leit_common::TermId::new(0), alpha);
         let mut beta = vec![];
         for doc_id in 1000..1130 {
             beta.push(PostingEntry {
@@ -1184,11 +1202,11 @@ mod tests {
                 term_freq: 1,
             });
         }
-        postings.insert(leit_core::TermId::new(1), beta);
+        postings.insert(leit_common::TermId::new(1), beta);
 
         let mut posting_blocks = BTreeMap::new();
-        posting_blocks.insert(leit_core::TermId::new(0), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(1), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(0), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(1), vec![]);
 
         InMemoryIndex::new(
             FieldAnalyzers::default(),
@@ -1500,33 +1518,33 @@ mod tests {
         // Term 0: exactly BLOCK_DOC_COUNT (128) postings => 1 block
         terms_to_ids.insert(
             (field_id, String::from("one_block")),
-            leit_core::TermId::new(0),
+            leit_common::TermId::new(0),
         );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(0),
+            term_id: leit_common::TermId::new(0),
             term: String::from("one_block"),
         });
 
         // Term 1: BLOCK_DOC_COUNT + 1 (129) postings => 2 blocks (128 + 1)
         terms_to_ids.insert(
             (field_id, String::from("two_blocks_uneven")),
-            leit_core::TermId::new(1),
+            leit_common::TermId::new(1),
         );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(1),
+            term_id: leit_common::TermId::new(1),
             term: String::from("two_blocks_uneven"),
         });
 
         // Term 2: 2 * BLOCK_DOC_COUNT (256) postings => 2 blocks (128 + 128)
         terms_to_ids.insert(
             (field_id, String::from("two_blocks_even")),
-            leit_core::TermId::new(2),
+            leit_common::TermId::new(2),
         );
         term_entries.push(TermEntry {
             field_id,
-            term_id: leit_core::TermId::new(2),
+            term_id: leit_common::TermId::new(2),
             term: String::from("two_blocks_even"),
         });
 
@@ -1540,7 +1558,7 @@ mod tests {
                 term_freq: 1,
             });
         }
-        postings.insert(leit_core::TermId::new(0), term0_postings);
+        postings.insert(leit_common::TermId::new(0), term0_postings);
 
         // Term 1: postings[0..129]
         let mut term1_postings = vec![];
@@ -1550,7 +1568,7 @@ mod tests {
                 term_freq: 1,
             });
         }
-        postings.insert(leit_core::TermId::new(1), term1_postings);
+        postings.insert(leit_common::TermId::new(1), term1_postings);
 
         // Term 2: postings[0..256]
         let mut term2_postings = vec![];
@@ -1560,12 +1578,12 @@ mod tests {
                 term_freq: 1,
             });
         }
-        postings.insert(leit_core::TermId::new(2), term2_postings);
+        postings.insert(leit_common::TermId::new(2), term2_postings);
 
         let mut posting_blocks = BTreeMap::new();
-        posting_blocks.insert(leit_core::TermId::new(0), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(1), vec![]);
-        posting_blocks.insert(leit_core::TermId::new(2), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(0), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(1), vec![]);
+        posting_blocks.insert(leit_common::TermId::new(2), vec![]);
 
         let field_doc_lengths = BTreeMap::new();
 

@@ -14,7 +14,7 @@ categories.workspace = true
 [dependencies]
 bytemuck.workspace = true
 leit_collect.workspace = true
-leit_core.workspace = true
+leit_common.workspace = true
 leit_postings.workspace = true
 leit_query.workspace = true
 leit_score.workspace = true
@@ -26,7 +26,7 @@ default = ["std"]
 bench-internals = ["leit_collect/bench-internals", "leit_postings/bench-internals"]
 std = [
     "leit_collect/std",
-    "leit_core/std",
+    "leit_common/std",
     "leit_postings/std",
     "leit_query/std",
     "leit_score/std",

@@ -12,7 +12,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-leit_core.workspace = true
+leit_common.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
@@ -20,7 +20,7 @@ proptest.workspace = true
 [features]
 default = ["std"]
 bench-internals = []
-std = ["leit_core/std"]
+std = ["leit_common/std"]
 
 [lints]
 workspace = true

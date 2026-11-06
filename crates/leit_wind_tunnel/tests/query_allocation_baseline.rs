@@ -6,7 +6,7 @@
 use std::alloc::System;
 
 use leit_collect::TopKCollector;
-use leit_core::{FieldId, ScoredHit};
+use leit_common::{FieldId, ScoredHit};
 use leit_index::{
     ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
 };

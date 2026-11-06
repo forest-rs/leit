@@ -1,7 +1,7 @@
 // Copyright 2026 the Leit Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use leit_core::{FieldId, TermId};
+use leit_common::{FieldId, TermId};
 use leit_query::{FieldRegistry, TermDictionary};
 
 use crate::PostingEntry;

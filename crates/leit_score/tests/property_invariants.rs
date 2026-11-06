@@ -3,7 +3,7 @@
 
 //! Property-based invariant tests for `leit_score`.
 
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_score::{Bm25FScorer, Bm25Scorer, FieldStats, ScoringStats};
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -50,7 +50,7 @@ proptest! {
             ..ScoringStats::new()
         });
 
-        prop_assert_eq!(score, leit_core::Score::ZERO);
+        prop_assert_eq!(score, leit_common::Score::ZERO);
     }
 
     #[test]

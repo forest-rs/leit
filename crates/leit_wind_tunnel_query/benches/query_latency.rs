@@ -17,7 +17,7 @@
 )]
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use leit_core::FieldId;
+use leit_common::FieldId;
 use leit_index::{
     ExecutionWorkspace, InMemoryIndex, InMemoryIndexBuilder, NoFilter, PlanOptions, SearchScorer,
 };

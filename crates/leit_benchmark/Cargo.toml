@@ -11,7 +11,7 @@ description = "Deterministic benchmark harnesses for the Leit retrieval workspac
 publish = false
 
 [dependencies]
-leit_core = { features = ["std"], workspace = true }
+leit_common = { features = ["std"], workspace = true }
 leit_index = { features = ["std"], workspace = true }
 leit_text = { features = ["std"], workspace = true }
 

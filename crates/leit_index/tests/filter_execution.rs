@@ -4,7 +4,7 @@
 //! Integration tests for filter execution in `leit-index`.
 
 use leit_collect::TopKCollector;
-use leit_core::{FieldId, FilterSlotId, QueryNodeId, Score, TermId};
+use leit_common::{FieldId, FilterSlotId, QueryNodeId, Score, TermId};
 use leit_index::{
     ExecutionWorkspace, FilterEvaluator, InMemoryIndex, InMemoryIndexBuilder, NoFilter,
     PlanOptions, SearchScorer,

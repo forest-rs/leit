@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use leit_core::{FieldId, QueryNodeId, TermId};
+use leit_common::{FieldId, QueryNodeId, TermId};
 use leit_query::{
     FeatureSet, FieldRegistry, Planner, PlannerScratch, PlanningContext, QueryError, QueryNode,
     QueryProgram, TermDictionary,

@@ -7,7 +7,7 @@ use std::alloc::System;
 use std::collections::BTreeMap;
 
 use leit_collect::{CountCollector, TopKCollector};
-use leit_core::{FieldId, FilterSlotId, QueryNodeId, ScoredHit};
+use leit_common::{FieldId, FilterSlotId, QueryNodeId, ScoredHit};
 use leit_index::{
     ExecutionWorkspace, FilterEvaluator, InMemoryIndex, InMemoryIndexBuilder, SearchScorer,
 };
@@ -72,7 +72,7 @@ fn plan(nodes: Vec<QueryNode>, root: u32) -> ExecutionPlan {
     }
 }
 
-fn term(field: FieldId, id: leit_core::TermId) -> QueryNode {
+fn term(field: FieldId, id: leit_common::TermId) -> QueryNode {
     QueryNode::Term {
         field,
         term: id,

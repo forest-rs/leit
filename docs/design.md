@@ -43,7 +43,7 @@ application entities
 
 ## Workspace structure
 
-- `leit_core`: shared identifiers, scores, hits, and workspace traits
+- `leit_common`: shared identifiers, scores, hits, and workspace traits
 - `leit_text`: tokenization and Unicode normalization
 - `leit_query`: query construction and planning
 - `leit_postings`: postings storage and cursor traversal
@@ -87,7 +87,7 @@ The boundary is important:
 
 ### Core model
 
-`leit_core` owns the common language of the system:
+`leit_common` owns the common language of the system:
 
 - typed IDs such as `FieldId`, `TermId`, and `QueryNodeId`
 - `Score` as a finite score type with saturating arithmetic
@@ -208,7 +208,7 @@ The library crates default to `std`, but the main library path is designed for
 
 This applies to:
 
-- `leit_core`
+- `leit_common`
 - `leit_text`
 - `leit_query`
 - `leit_postings`
